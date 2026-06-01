@@ -100,6 +100,12 @@ KO_MODEL_PATH=/절대경로/porcupine_params_ko.pv
 
 GMAIL_ADDRESS=your@gmail.com
 GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
+
+# 텔레그램 봇 (선택 — python mustang.py --telegram 사용 시)
+# 1. 텔레그램에서 @BotFather 에게 /newbot 명령으로 봇 생성 후 토큰 발급
+# 2. 본인 채팅 ID는 https://t.me/userinfobot 에서 확인
+TELEGRAM_BOT_TOKEN=1234567890:ABCdefGhIJKlmNoPQRsTUVwxyZ
+TELEGRAM_CHAT_ID=123456789
 ```
 
 ### 7단계 — 실행
@@ -157,8 +163,26 @@ Mac ARM의 [5단계](#5단계--웨이크워드-모델-준비)와 동일합니다
 
 ```bash
 cp config/.env.example config/.env
-# config/.env 파일 편집 후
+```
 
+`config/.env` 파일을 열어서 값 입력:
+
+```
+PICOVOICE_ACCESS_KEY=여기에_발급받은_키
+KEYWORD_PATH=/절대경로/머스탱_ko_mac.ppn
+KO_MODEL_PATH=/절대경로/porcupine_params_ko.pv
+
+GMAIL_ADDRESS=your@gmail.com
+GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
+
+# 텔레그램 봇 (선택 — python mustang.py --telegram 사용 시)
+# 1. 텔레그램에서 @BotFather 에게 /newbot 명령으로 봇 생성 후 토큰 발급
+# 2. 본인 채팅 ID는 https://t.me/userinfobot 에서 확인
+TELEGRAM_BOT_TOKEN=1234567890:ABCdefGhIJKlmNoPQRsTUVwxyZ
+TELEGRAM_CHAT_ID=123456789
+```
+
+```bash
 source venv/bin/activate
 python mustang.py
 ```
@@ -228,6 +252,12 @@ KO_MODEL_PATH=C:\절대경로\porcupine_params_ko.pv
 
 GMAIL_ADDRESS=your@gmail.com
 GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
+
+# 텔레그램 봇 (선택 — python mustang.py --telegram 사용 시)
+# 1. 텔레그램에서 @BotFather 에게 /newbot 명령으로 봇 생성 후 토큰 발급
+# 2. 본인 채팅 ID는 https://t.me/userinfobot 에서 확인
+TELEGRAM_BOT_TOKEN=1234567890:ABCdefGhIJKlmNoPQRsTUVwxyZ
+TELEGRAM_CHAT_ID=123456789
 ```
 
 ### 7단계 — 실행

@@ -68,7 +68,7 @@ conda activate mustang
 
 ```bash
 git clone https://github.com/jakalee/mustang-voice-agent.git
-cd 음성명령ai
+cd mustang-voice-agent
 
 # pyaudio는 ARM portaudio 링크로 별도 설치
 LDFLAGS="-L/opt/homebrew/lib" CPPFLAGS="-I/opt/homebrew/include" \
@@ -132,7 +132,7 @@ brew install python@3.11 portaudio
 
 ```bash
 git clone https://github.com/jakalee/mustang-voice-agent.git
-cd 음성명령ai
+cd mustang-voice-agent
 
 python3.11 -m venv venv
 source venv/bin/activate
@@ -178,7 +178,7 @@ PowerShell 또는 명령 프롬프트에서:
 
 ```powershell
 git clone https://github.com/jakalee/mustang-voice-agent.git
-cd 음성명령ai
+cd mustang-voice-agent
 
 python -m venv venv
 venv\Scripts\activate

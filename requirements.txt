@@ -29,6 +29,9 @@ pyobjc-framework-Quartz>=10.0; sys_platform == "darwin"
 # Scheduling
 APScheduler>=3.10.0
 
+# YouTube
+yt-dlp>=2024.0.0
+
 # Utilities
 requests>=2.31.0
 python-dotenv>=1.0.0

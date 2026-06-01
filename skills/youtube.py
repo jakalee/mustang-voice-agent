@@ -1,13 +1,13 @@
 """
 YouTube 재생 스킬
-Safari/Chrome으로 YouTube 검색 및 재생
+yt-dlp로 첫 번째 검색 결과 URL을 가져와 브라우저로 바로 재생
 """
 import subprocess
 import urllib.parse
 
 SKILL_DEFINITION = {
     "name": "play_youtube",
-    "description": "YouTube에서 음악이나 동영상을 검색하여 Safari 브라우저로 재생합니다",
+    "description": "YouTube에서 음악이나 동영상을 검색하여 브라우저로 바로 재생합니다",
     "enabled": True,
     "input_schema": {
         "type": "object",
@@ -16,53 +16,68 @@ SKILL_DEFINITION = {
                 "type": "string",
                 "description": "검색할 음악 또는 동영상 제목/키워드",
             },
-            "autoplay": {
-                "type": "boolean",
-                "description": "첫 번째 결과 자동 재생 여부",
-                "default": True,
-            },
         },
         "required": ["query"],
     },
 }
 
 
+def _get_video_url(query: str) -> str | None:
+    """yt-dlp로 첫 번째 검색 결과 URL 반환"""
+    try:
+        result = subprocess.run(
+            [
+                "yt-dlp",
+                f"ytsearch1:{query}",
+                "--get-url",
+                "--no-playlist",
+                "--format", "bestvideo+bestaudio/best",
+                "--youtube-skip-dash-manifest",
+            ],
+            capture_output=True, text=True, timeout=15,
+        )
+        # yt-dlp --get-url 는 여러 줄 출력 가능 — 첫 줄이 영상 페이지 URL이 아님
+        # watch URL을 따로 구함
+        result2 = subprocess.run(
+            [
+                "yt-dlp",
+                f"ytsearch1:{query}",
+                "--get-id",
+                "--no-playlist",
+            ],
+            capture_output=True, text=True, timeout=15,
+        )
+        vid_id = result2.stdout.strip().splitlines()[0] if result2.stdout.strip() else None
+        if vid_id:
+            return f"https://www.youtube.com/watch?v={vid_id}"
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+    return None
+
+
 def execute(params: dict) -> str:
-    query = params.get("query", "")
+    query = params.get("query", "").strip()
     if not query:
         return "검색어를 입력해주세요."
 
-    encoded_query = urllib.parse.quote(query)
-    # YouTube 검색 URL
-    search_url = f"https://www.youtube.com/results?search_query={encoded_query}"
+    video_url = _get_video_url(query)
 
-    # AppleScript로 Safari에서 열기
-    applescript = f"""
-    tell application "Safari"
-        activate
-        if (count of windows) = 0 then
-            make new document
-        end if
-        set URL of current tab of front window to "{search_url}"
-    end tell
-
-    delay 3
-
-    tell application "System Events"
-        tell process "Safari"
-            -- 첫 번째 동영상 클릭 (키보드 단축키)
-            keystroke tab
-            delay 0.5
-        end tell
-    end tell
-    """
-
-    try:
-        subprocess.run(["open", "-a", "Google Chrome", search_url], check=True)
-        return f"Chrome에서 YouTube '{query}' 검색을 열었습니다."
-    except Exception:
+    if video_url:
+        # 브라우저로 직접 watch URL 열기 (로그인 쿠키 사용)
         try:
-            subprocess.run(["open", search_url], check=True)
-            return f"YouTube에서 '{query}'를 검색했습니다."
-        except Exception as e2:
-            return f"YouTube 열기 실패: {e2}"
+            subprocess.run(["open", "-a", "Google Chrome", video_url], check=True)
+            return f"Chrome에서 YouTube '{query}' 재생을 시작했습니다."
+        except Exception:
+            subprocess.run(["open", video_url])
+            return f"YouTube에서 '{query}' 재생을 시작했습니다."
+    else:
+        # yt-dlp 없으면 검색 페이지라도 열기
+        encoded = urllib.parse.quote(query)
+        search_url = f"https://www.youtube.com/results?search_query={encoded}"
+        try:
+            subprocess.run(["open", "-a", "Google Chrome", search_url], check=True)
+        except Exception:
+            subprocess.run(["open", search_url])
+        return f"yt-dlp가 없어 검색 페이지를 열었습니다. 'pip install yt-dlp' 로 설치하면 바로 재생됩니다."

@@ -1,0 +1,24 @@
+# 환경 및 가상환경
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 민감한 설정 파일
+config/.env
+config/.salt
+config/credentials.enc
+config/*.json
+
+# 데이터/히스토리
+data/history/
+data/screenshots/
+
+# macOS
+.DS_Store
+
+# 웨이크워드 모델 (용량 큼, 개인 라이선스)
+*.ppn
+*.pv

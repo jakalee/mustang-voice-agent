@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(chmod +x /Users/jakallee/Downloads/mustang_ai/setup.sh)",
+      "Bash(pip install *)",
+      "Bash(python3 -m pip install cryptography anthropic -q)",
+      "Bash(python3 -c \"from cryptography.fernet import Fernet; print\\('OK'\\)\")",
+      "Bash(claude --version)",
+      "Bash(say -v '?')",
+      "Bash(python3 -c \"import pvrecorder; print\\('pvrecorder OK'\\)\")",
+      "Bash(python3 -c \"import pyaudio; pa = pyaudio.PyAudio\\(\\); pa.terminate\\(\\); pa2 = pyaudio.PyAudio\\(\\); pa2.terminate\\(\\); print\\('pyaudio OK'\\)\")",
+      "Bash(python3 -c \"import sys; print\\(sys.executable\\)\")",
+      "Bash(/Users/jakallee/anaconda3/bin/python3 -c \"import ctranslate2; print\\('ctranslate2 OK', ctranslate2.__version__\\)\")",
+      "Bash(/Users/jakallee/anaconda3/bin/python3 -c \"from faster_whisper import WhisperModel; print\\('faster_whisper OK'\\)\")",
+      "Read(//Users/jakallee/anaconda3/envs/**)",
+      "Read(//Users/jakallee/anaconda3/**)",
+      "Bash(/Users/jakallee/anaconda3/bin/python3 -c \"import faster_whisper\")",
+      "Bash(find /Users/jakallee -name \"faster_whisper\" -type d 2>/dev/null | head -5 *)",
+      "Bash(python3 -c \"import platform; print\\(platform.machine\\(\\)\\)\")",
+      "Bash(brew list *)",
+      "Bash(/usr/local/bin/python3.11 -c \"import platform; print\\(platform.machine\\(\\)\\)\")",
+      "Bash(/usr/local/bin/python3.11 --version)",
+      "Bash(brew --prefix python@3.11)",
+      "Bash(brew --prefix python@3.13)",
+      "Bash(/usr/local/opt/python@3.13/bin/python3 -c \"import platform; print\\(platform.machine\\(\\)\\)\")",
+      "Bash(/usr/local/opt/python@3.13/bin/python3 --version)",
+      "Bash(ls /opt/homebrew/bin/python* 2>/dev/null || echo \"ARM Homebrew Python 없음\"; ls /usr/bin/python* 2>/dev/null)",
+      "Bash(/usr/bin/python3 -c \"import platform; print\\(platform.machine\\(\\)\\)\")",
+      "Bash(/usr/bin/python3 --version)"
+    ]
+  }
+}

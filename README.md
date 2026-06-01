@@ -67,7 +67,7 @@ conda activate mustang
 ### 4단계 — 프로젝트 클론 및 패키지 설치
 
 ```bash
-git clone https://github.com/jakalee/음성명령ai.git
+git clone https://github.com/jakalee/mustang-voice-agent.git
 cd 음성명령ai
 
 # pyaudio는 ARM portaudio 링크로 별도 설치
@@ -131,7 +131,7 @@ brew install python@3.11 portaudio
 ### 2단계 — 프로젝트 클론 및 가상환경
 
 ```bash
-git clone https://github.com/jakalee/음성명령ai.git
+git clone https://github.com/jakalee/mustang-voice-agent.git
 cd 음성명령ai
 
 python3.11 -m venv venv
@@ -177,7 +177,7 @@ python mustang.py
 PowerShell 또는 명령 프롬프트에서:
 
 ```powershell
-git clone https://github.com/jakalee/음성명령ai.git
+git clone https://github.com/jakalee/mustang-voice-agent.git
 cd 음성명령ai
 
 python -m venv venv

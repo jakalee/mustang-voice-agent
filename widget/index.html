@@ -18,7 +18,7 @@
   }
   #status {
     position: absolute;
-    bottom: 18px;
+    bottom: 38px;
     width: 100%;
     text-align: center;
     font-family: -apple-system, sans-serif;
@@ -28,19 +28,38 @@
     color: rgba(255,255,255,0.5);
     pointer-events: none;
   }
+  #subtext {
+    position: absolute;
+    bottom: 14px;
+    width: 92%;
+    left: 4%;
+    text-align: center;
+    font-family: -apple-system, sans-serif;
+    font-size: 12px;
+    line-height: 1.4;
+    color: rgba(255,255,255,0.75);
+    pointer-events: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: opacity 0.4s;
+  }
 </style>
 </head>
 <body>
 <div id="status">대기 중</div>
+<div id="subtext"></div>
 <script src="p5.min.js"></script>
 <script>
 // ─── 상태 관리 ───────────────────────────────────────────────
 const State = { IDLE: 'idle', LISTENING: 'listening', THINKING: 'thinking', SPEAKING: 'speaking' };
 let agentState = State.IDLE;
-let amplitude = 0;       // 0.0 ~ 1.0, 백엔드에서 수신
+let amplitude = 0;
 let targetAmplitude = 0;
 
 const statusEl = document.getElementById('status');
+const subtextEl = document.getElementById('subtext');
+
 const statusText = {
   idle:      '대기 중',
   listening: '듣는 중',
@@ -52,13 +71,25 @@ const statusText = {
 function connectWS() {
   try {
     const ws = new WebSocket('ws://127.0.0.1:8765');
-    ws.onopen  = () => console.log('[mustang] WS 연결됨');
+    ws.onopen = () => console.log('[mustang] WS 연결됨');
     ws.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data);
         if (msg.state) {
           agentState = msg.state;
           statusEl.textContent = statusText[agentState] || agentState;
+
+          // 상태 전환 시 서브텍스트 처리
+          if (msg.state === 'idle' || msg.state === 'listening') {
+            subtextEl.textContent = '';
+          }
+          if (msg.text) {
+            subtextEl.textContent = msg.text;
+          }
+        }
+        // state 없이 text만 올 수도 있음
+        if (!msg.state && msg.text) {
+          subtextEl.textContent = msg.text;
         }
         if (msg.amplitude !== undefined) {
           targetAmplitude = Math.min(1.0, msg.amplitude);
@@ -80,7 +111,6 @@ const sketch = (p) => {
   const circles = [];
   let CX, CY;
 
-  // 상태별 파라미터
   const params = {
     idle:      { speed: 0.0008, radiusBase: 0.38, radiusMod: 0.0,  alpha: 80,  color: [160, 200, 255] },
     listening: { speed: 0.0018, radiusBase: 0.42, radiusMod: 0.04, alpha: 140, color: [100, 220, 180] },
@@ -109,15 +139,13 @@ const sketch = (p) => {
 
   p.draw = () => {
     p.clear();
-
-    // 진폭 스무딩
-    amplitude += (targetAmplitude - amplitude) * 0.15;
+    amplitude += (targetAmplitude - amplitude) * 0.12;
 
     const st = agentState;
     const pm = params[st] || params.idle;
 
     const ampMod = st === State.SPEAKING ? amplitude * 0.18 : pm.radiusMod;
-    const pulse   = st !== State.SPEAKING
+    const pulse  = st !== State.SPEAKING
       ? Math.sin(p.millis() * 0.001) * pm.radiusMod
       : 0;
     const baseR = p.min(p.width, p.height) * (pm.radiusBase + pulse + ampMod);

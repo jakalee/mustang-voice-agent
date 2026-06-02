@@ -94,35 +94,42 @@ def _start_widget_servers():
     print("🎨 위젯 서버 시작됨 (ws://localhost:8765 | http://localhost:8766)")
 
 
-def _simulate_speaking(text: str):
-    chars = max(len(text), 10)
-    duration = chars * 0.07
+def _simulate_speaking(stop_event: threading.Event):
+    """self.speak()가 끝날 때까지 진폭 시뮬레이션 — stop_event로 종료 신호 수신"""
     start = time.time()
-    while time.time() - start < duration:
+    while not stop_event.is_set():
         t = time.time() - start
-        amp = 0.4 + 0.5 * abs(math.sin(t * 6)) * (1 - t / duration)
+        amp = 0.35 + 0.55 * abs(math.sin(t * 5.5 + 0.3))
         _ws_send({"amplitude": round(amp, 3)})
         time.sleep(0.05)
-    _ws_send({"state": "idle", "amplitude": 0.0})
+    # 자연스러운 페이드아웃
+    for i in range(10):
+        amp = 0.3 * (1 - i / 10)
+        _ws_send({"amplitude": round(amp, 3)})
+        time.sleep(0.04)
+    _ws_send({"state": "idle", "amplitude": 0.0, "text": ""})
 
 
 class WidgetBridge:
     @staticmethod
     def set_idle():
-        _ws_send({"state": "idle", "amplitude": 0.0})
+        _ws_send({"state": "idle", "amplitude": 0.0, "text": ""})
 
     @staticmethod
     def set_listening():
-        _ws_send({"state": "listening", "amplitude": 0.0})
+        _ws_send({"state": "listening", "amplitude": 0.0, "text": ""})
 
     @staticmethod
-    def set_thinking():
-        _ws_send({"state": "thinking", "amplitude": 0.0})
+    def set_thinking(user_text: str = ""):
+        _ws_send({"state": "thinking", "amplitude": 0.0, "text": user_text})
 
     @staticmethod
-    def set_speaking(text: str = ""):
-        _ws_send({"state": "speaking", "amplitude": 0.3})
-        threading.Thread(target=_simulate_speaking, args=(text,), daemon=True).start()
+    def set_speaking(text: str = "") -> threading.Event:
+        """진폭 시뮬레이션 시작. 반환된 stop_event.set()으로 TTS 종료 신호를 보내세요."""
+        _ws_send({"state": "speaking", "amplitude": 0.3, "text": text})
+        stop_event = threading.Event()
+        threading.Thread(target=_simulate_speaking, args=(stop_event,), daemon=True).start()
+        return stop_event
 
 
 _start_widget_servers()
@@ -307,21 +314,25 @@ class MustangAgent:
             return ""
 
         print(f"  📝 인식됨: {text}")
+        WidgetBridge.set_thinking(text)   # 사용자 발화를 위젯에 표시
         response = self._process_command(text, chat_id=VOICE_CHAT_ID)
 
         if response == "SLEEP":
-            WidgetBridge.set_speaking("알겠습니다. 다시 부르시면 깨어납니다.")
+            ev = WidgetBridge.set_speaking("알겠습니다. 다시 부르시면 깨어납니다.")
             self.speak("알겠습니다. 다시 부르시면 깨어납니다.")
+            ev.set()
             return "SLEEP"
 
         if response == "TEXT_MODE":
-            WidgetBridge.set_speaking("텍스트 모드로 전환합니다.")
+            ev = WidgetBridge.set_speaking("텍스트 모드로 전환합니다.")
             self.speak("텍스트 모드로 전환합니다.")
+            ev.set()
             return "TEXT_MODE"
 
         print(f"  🤖 응답: {response[:120]}{'...' if len(response) > 120 else ''}")
-        WidgetBridge.set_speaking(response)
-        self.speak(response)
+        ev = WidgetBridge.set_speaking(response)
+        self.speak(response)   # 블로킹 — TTS가 완전히 끝날 때까지 대기
+        ev.set()               # TTS 끝 → 진폭 페이드아웃 시작
         return ""
 
     def run_voice_mode(self):

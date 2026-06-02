@@ -91,7 +91,23 @@ class _Handler(SimpleHTTPRequestHandler):
         pass  # 로그 억제
 
 
+def _kill_port(port: int):
+    """해당 포트를 점유 중인 프로세스를 종료"""
+    import signal
+    import subprocess
+    try:
+        result = subprocess.check_output(
+            ["lsof", "-ti", f":{port}"], text=True
+        ).strip()
+        for pid in result.splitlines():
+            os.kill(int(pid), signal.SIGKILL)
+        time.sleep(0.5)
+    except Exception:
+        pass
+
+
 def _run_http():
+    _kill_port(8766)
     server = HTTPServer(("localhost", 8766), _Handler)
     server.serve_forever()
 
@@ -100,6 +116,7 @@ def _run_http():
 async def _main():
     global _loop
     _loop = asyncio.get_running_loop()
+    _kill_port(8765)
     async with websockets.serve(_ws_handler, "localhost", 8765):
         print("[widget] WebSocket ws://localhost:8765 시작")
         print("[widget] HTTP     http://localhost:8766 시작")

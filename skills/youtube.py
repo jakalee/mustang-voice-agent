@@ -1,13 +1,13 @@
 """
 YouTube 재생 스킬
-yt-dlp로 첫 번째 검색 결과 URL을 가져와 브라우저로 바로 재생
+Playwright로 YouTube 검색 후 첫 번째 영상을 자동 클릭하여 재생
 """
 import subprocess
-import urllib.parse
+from typing import Optional
 
 SKILL_DEFINITION = {
     "name": "play_youtube",
-    "description": "YouTube에서 음악이나 동영상을 검색하여 브라우저로 바로 재생합니다",
+    "description": "YouTube에서 음악이나 동영상을 검색하여 첫 번째 영상을 자동으로 클릭 재생합니다",
     "enabled": True,
     "input_schema": {
         "type": "object",
@@ -22,36 +22,59 @@ SKILL_DEFINITION = {
 }
 
 
-def _get_video_url(query: str) -> str | None:
-    """yt-dlp로 첫 번째 검색 결과 URL 반환"""
+def _play_with_playwright(query: str) -> Optional[str]:
+    """Playwright로 YouTube 검색 후 첫 번째 영상 클릭"""
+    try:
+        from playwright.sync_api import sync_playwright
+        import urllib.parse
+
+        search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
+
+        with sync_playwright() as p:
+            # 기존 Chrome 프로필 사용 (로그인 상태 유지)
+            try:
+                browser = p.chromium.launch_persistent_context(
+                    user_data_dir="/tmp/mustang-chrome",
+                    headless=False,
+                    channel="chrome",
+                    args=["--start-maximized"],
+                )
+                page = browser.pages[0] if browser.pages else browser.new_page()
+            except Exception:
+                browser = p.chromium.launch(headless=False)
+                page = browser.new_page()
+
+            page.goto(search_url, wait_until="domcontentloaded", timeout=15000)
+            page.wait_for_timeout(1500)
+
+            # 첫 번째 영상 썸네일 또는 제목 클릭
+            first_video = page.locator("ytd-video-renderer a#thumbnail").first
+            title = page.locator("ytd-video-renderer #video-title").first.inner_text(timeout=5000)
+            first_video.click()
+
+            page.wait_for_timeout(2000)
+            # 브라우저는 열어둔 채로 유지 (close 안 함)
+            return title.strip()
+
+    except Exception as e:
+        return None
+
+
+def _play_with_ytdlp(query: str) -> Optional[str]:
+    """yt-dlp로 video ID 추출 후 브라우저로 열기 (폴백)"""
     try:
         result = subprocess.run(
-            [
-                "yt-dlp",
-                f"ytsearch1:{query}",
-                "--get-url",
-                "--no-playlist",
-                "--format", "bestvideo+bestaudio/best",
-                "--youtube-skip-dash-manifest",
-            ],
+            ["yt-dlp", f"ytsearch1:{query}", "--get-id", "--no-playlist"],
             capture_output=True, text=True, timeout=15,
         )
-        # yt-dlp --get-url 는 여러 줄 출력 가능 — 첫 줄이 영상 페이지 URL이 아님
-        # watch URL을 따로 구함
-        result2 = subprocess.run(
-            [
-                "yt-dlp",
-                f"ytsearch1:{query}",
-                "--get-id",
-                "--no-playlist",
-            ],
-            capture_output=True, text=True, timeout=15,
-        )
-        vid_id = result2.stdout.strip().splitlines()[0] if result2.stdout.strip() else None
+        vid_id = result.stdout.strip().splitlines()[0] if result.stdout.strip() else None
         if vid_id:
-            return f"https://www.youtube.com/watch?v={vid_id}"
-    except FileNotFoundError:
-        pass
+            url = f"https://www.youtube.com/watch?v={vid_id}"
+            try:
+                subprocess.run(["open", "-a", "Google Chrome", url], check=True)
+            except Exception:
+                subprocess.run(["open", url])
+            return url
     except Exception:
         pass
     return None
@@ -62,22 +85,21 @@ def execute(params: dict) -> str:
     if not query:
         return "검색어를 입력해주세요."
 
-    video_url = _get_video_url(query)
+    # 1순위: Playwright로 검색 → 첫 영상 자동 클릭
+    title = _play_with_playwright(query)
+    if title:
+        return f"YouTube에서 '{title}' 재생을 시작했습니다."
 
-    if video_url:
-        # 브라우저로 직접 watch URL 열기 (로그인 쿠키 사용)
-        try:
-            subprocess.run(["open", "-a", "Google Chrome", video_url], check=True)
-            return f"Chrome에서 YouTube '{query}' 재생을 시작했습니다."
-        except Exception:
-            subprocess.run(["open", video_url])
-            return f"YouTube에서 '{query}' 재생을 시작했습니다."
-    else:
-        # yt-dlp 없으면 검색 페이지라도 열기
-        encoded = urllib.parse.quote(query)
-        search_url = f"https://www.youtube.com/results?search_query={encoded}"
-        try:
-            subprocess.run(["open", "-a", "Google Chrome", search_url], check=True)
-        except Exception:
-            subprocess.run(["open", search_url])
-        return f"yt-dlp가 없어 검색 페이지를 열었습니다. 'pip install yt-dlp' 로 설치하면 바로 재생됩니다."
+    # 2순위: yt-dlp로 URL 추출 후 브라우저로 열기
+    url = _play_with_ytdlp(query)
+    if url:
+        return f"YouTube에서 '{query}' 재생을 시작했습니다."
+
+    # 3순위: 검색 페이지만 열기
+    import urllib.parse
+    search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
+    try:
+        subprocess.run(["open", "-a", "Google Chrome", search_url], check=True)
+    except Exception:
+        subprocess.run(["open", search_url])
+    return f"YouTube 검색 페이지를 열었습니다. '{query}'"

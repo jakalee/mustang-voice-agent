@@ -12,7 +12,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, Optional, Callable
 
-CLAUDE_CMD = "claude"
+CLAUDE_CMD = shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
 CLAUDE_MODEL = "claude-opus-4-7"
 CLAUDE_TIMEOUT = 120
 WORK_DIR = str(Path(__file__).parent.parent)

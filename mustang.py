@@ -13,10 +13,28 @@ import time
 import warnings
 from pathlib import Path
 
+# ── 위젯 서버 ────────────────────────────────────────────────────────────────
+try:
+    from widget_server import WidgetBridge, start_servers as _start_widget_servers
+    _start_widget_servers()
+    print("🎨 위젯 서버 시작됨 (ws://localhost:8765 | http://localhost:8766)")
+except Exception as _e:
+    print(f"⚠️ 위젯 서버 실패 (무시됨): {_e}")
+    class WidgetBridge:
+        @staticmethod
+        def set_idle(): pass
+        @staticmethod
+        def set_listening(): pass
+        @staticmethod
+        def set_thinking(): pass
+        @staticmethod
+        def set_speaking(text=""): pass
+
 # 불필요한 경고 억제
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 os.environ.setdefault("MKL_THREADING_LAYER", "GNU")
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 warnings.filterwarnings("ignore", category=UserWarning)
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -171,19 +189,23 @@ class MustangAgent:
             return ""
 
         print("  🎤 음성 입력 대기 중...")
+        WidgetBridge.set_listening()
         audio = self.record_audio(self.pa)
 
         # 녹음 완료 → PyAudio 종료 후 TTS (CoreAudio 충돌 방지)
         self._terminate_audio()
 
         if audio is None:
+            WidgetBridge.set_idle()
             self.speak("음성을 인식하지 못했습니다.")
             return ""
 
         print("  ⏳ 음성 분석 중...")
+        WidgetBridge.set_thinking()
         text = self.transcribe(audio, use_whisper=self.use_whisper)
 
         if not text or len(text.strip()) < 2:
+            WidgetBridge.set_idle()
             self.speak("말씀을 이해하지 못했습니다.")
             return ""
 
@@ -191,107 +213,64 @@ class MustangAgent:
         response = self._process_command(text, chat_id=VOICE_CHAT_ID)
 
         if response == "SLEEP":
+            WidgetBridge.set_speaking("알겠습니다. 다시 부르시면 깨어납니다.")
             self.speak("알겠습니다. 다시 부르시면 깨어납니다.")
             return "SLEEP"
 
         if response == "TEXT_MODE":
+            WidgetBridge.set_speaking("텍스트 모드로 전환합니다.")
             self.speak("텍스트 모드로 전환합니다.")
             return "TEXT_MODE"
 
         print(f"  🤖 응답: {response[:120]}{'...' if len(response) > 120 else ''}")
+        WidgetBridge.set_speaking(response)
         self.speak(response)
         return ""
 
     def run_voice_mode(self):
-        """웨이크워드 감지 루프"""
-        try:
-            import pvporcupine
-        except ImportError:
-            print("❌ pvporcupine 설치 필요: pip install pvporcupine")
+        """웨이크워드 감지 루프 (faster-whisper 기반, 완전 무료)"""
+        from core.wakeword import listen_for_wakeword
+
+        self._init_audio()
+        if not self.pa:
+            print("❌ 마이크를 초기화할 수 없습니다.")
             return
 
-        if not Path(KEYWORD_PATH).exists():
-            print(f"❌ 웨이크워드 모델 없음: {KEYWORD_PATH}")
-            return
-
-        porcupine = None
-        audio_stream = None
+        print("🎤 준비 완료! '머스탱'이라고 불러보세요... (종료: Ctrl+C)\n")
+        self._terminate_audio()
+        self.speak(READY_MESSAGE)
+        time.sleep(0.3)
 
         try:
-            porcupine = pvporcupine.create(
-                access_key=PICOVOICE_ACCESS_KEY,
-                keyword_paths=[KEYWORD_PATH],
-                model_path=KO_MODEL_PATH,
-            )
-
-            if self.pa is None:
-                import pyaudio
-                self.pa = pyaudio.PyAudio()
-
-            audio_stream = self.pa.open(
-                rate=porcupine.sample_rate,
-                channels=1,
-                format=__import__("pyaudio").paInt16,
-                input=True,
-                frames_per_buffer=porcupine.frame_length,
-            )
-
-            print("🎤 준비 완료! '머스탱'이라고 불러보세요... (종료: Ctrl+C)\n")
-            audio_stream.stop_stream()
-            audio_stream.close()
-            self._terminate_audio()
-            self.speak(READY_MESSAGE)
-            self._init_audio()
-            audio_stream = self.pa.open(
-                rate=porcupine.sample_rate,
-                channels=1,
-                format=__import__("pyaudio").paInt16,
-                input=True,
-                frames_per_buffer=porcupine.frame_length,
-            )
-
             while True:
-                pcm = audio_stream.read(porcupine.frame_length, exception_on_overflow=False)
-                pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
-                keyword_index = porcupine.process(pcm)
+                self._init_audio()
+                WidgetBridge.set_idle()
 
-                if keyword_index >= 0:
-                    print("\n🔥 [감지] 머스탱이 깨어났습니다!")
+                # 웨이크워드 감지 ("머스탱!")
+                detected = listen_for_wakeword(self.pa)
+                if not detected:
+                    continue
 
-                    # Porcupine 스트림 + PyAudio 완전 종료 후 TTS
-                    audio_stream.stop_stream()
-                    audio_stream.close()
-                    self._terminate_audio()
-                    time.sleep(0.2)
+                print("\n🔥 [감지] 머스탱이 깨어났습니다!")
+                WidgetBridge.set_listening()
 
-                    self.speak(WAKEUP_MESSAGE)
-                    time.sleep(0.3)
+                self._terminate_audio()
+                time.sleep(0.15)
+                self.speak(WAKEUP_MESSAGE)
+                time.sleep(0.2)
 
-                    # _listen_and_respond 내부에서 pa 재초기화 → 녹음 → 종료 → TTS
-                    result = self._listen_and_respond()
+                result = self._listen_and_respond()
 
-                    if result == "TEXT_MODE":
-                        self.run_text_mode(from_voice=True)
+                if result == "TEXT_MODE":
+                    self.run_text_mode(from_voice=True)
 
-                    # 응답 TTS 완료 후 PyAudio + Porcupine 스트림 재시작
-                    time.sleep(0.5)
-                    self._init_audio()
-                    audio_stream = self.pa.open(
-                        rate=porcupine.sample_rate,
-                        channels=1,
-                        format=__import__("pyaudio").paInt16,
-                        input=True,
-                        frames_per_buffer=porcupine.frame_length,
-                    )
-                    print("\n🎤 다시 대기 중...")
+                WidgetBridge.set_idle()
+                self._terminate_audio()
+                time.sleep(0.3)
+                print("\n🎤 다시 대기 중... ('머스탱'이라고 불러주세요)")
 
         except KeyboardInterrupt:
             print("\n👋 머스탱을 종료합니다.")
-        finally:
-            if audio_stream:
-                audio_stream.close()
-            if porcupine:
-                porcupine.delete()
 
     def run_text_mode(self, from_voice: bool = False):
         """텍스트 입력 모드

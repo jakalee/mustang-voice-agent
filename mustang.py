@@ -6,29 +6,126 @@
 실행: python mustang.py [--setup] [--text] [--telegram]
 """
 import argparse
+import asyncio
+import json
+import math
 import os
+import signal
 import struct
+import subprocess
 import sys
 import time
+import threading
 import warnings
+from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
+from typing import Optional
 
-# ── 위젯 서버 ────────────────────────────────────────────────────────────────
-try:
-    from widget_server import WidgetBridge, start_servers as _start_widget_servers
-    _start_widget_servers()
+# ── 위젯 서버 (WebSocket + HTTP, mustang.py 내장) ────────────────────────────
+_ws_clients: set = set()
+_ws_loop: Optional[asyncio.AbstractEventLoop] = None
+_WIDGET_DIR = Path(__file__).parent / "widget"
+
+
+async def _ws_handler(websocket):
+    _ws_clients.add(websocket)
+    try:
+        await websocket.wait_closed()
+    finally:
+        _ws_clients.discard(websocket)
+
+
+async def _ws_broadcast(msg: dict):
+    if not _ws_clients:
+        return
+    data = json.dumps(msg)
+    await asyncio.gather(*[c.send(data) for c in _ws_clients], return_exceptions=True)
+
+
+def _ws_send(msg: dict):
+    if _ws_loop and _ws_loop.is_running():
+        asyncio.run_coroutine_threadsafe(_ws_broadcast(msg), _ws_loop)
+
+
+def _kill_port(port: int):
+    try:
+        result = subprocess.check_output(["lsof", "-ti", f":{port}"], text=True).strip()
+        for pid in result.splitlines():
+            os.kill(int(pid), signal.SIGKILL)
+        time.sleep(0.4)
+    except Exception:
+        pass
+
+
+class _WidgetHTTPHandler(SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=str(_WIDGET_DIR), **kwargs)
+    def log_message(self, *args):
+        pass
+
+
+def _start_http_server():
+    _kill_port(8766)
+    HTTPServer(("localhost", 8766), _WidgetHTTPHandler).serve_forever()
+
+
+def _start_ws_server():
+    global _ws_loop
+    try:
+        import websockets as _ws
+    except ImportError:
+        return
+    _kill_port(8765)
+
+    async def _run():
+        global _ws_loop
+        _ws_loop = asyncio.get_running_loop()
+        async with _ws.serve(_ws_handler, "localhost", 8765):
+            await asyncio.Future()
+
+    loop = asyncio.new_event_loop()
+    _ws_loop = loop
+    loop.run_until_complete(_run())
+
+
+def _start_widget_servers():
+    threading.Thread(target=_start_http_server, daemon=True).start()
+    threading.Thread(target=_start_ws_server,   daemon=True).start()
     print("🎨 위젯 서버 시작됨 (ws://localhost:8765 | http://localhost:8766)")
-except Exception as _e:
-    print(f"⚠️ 위젯 서버 실패 (무시됨): {_e}")
-    class WidgetBridge:
-        @staticmethod
-        def set_idle(): pass
-        @staticmethod
-        def set_listening(): pass
-        @staticmethod
-        def set_thinking(): pass
-        @staticmethod
-        def set_speaking(text=""): pass
+
+
+def _simulate_speaking(text: str):
+    chars = max(len(text), 10)
+    duration = chars * 0.07
+    start = time.time()
+    while time.time() - start < duration:
+        t = time.time() - start
+        amp = 0.4 + 0.5 * abs(math.sin(t * 6)) * (1 - t / duration)
+        _ws_send({"amplitude": round(amp, 3)})
+        time.sleep(0.05)
+    _ws_send({"state": "idle", "amplitude": 0.0})
+
+
+class WidgetBridge:
+    @staticmethod
+    def set_idle():
+        _ws_send({"state": "idle", "amplitude": 0.0})
+
+    @staticmethod
+    def set_listening():
+        _ws_send({"state": "listening", "amplitude": 0.0})
+
+    @staticmethod
+    def set_thinking():
+        _ws_send({"state": "thinking", "amplitude": 0.0})
+
+    @staticmethod
+    def set_speaking(text: str = ""):
+        _ws_send({"state": "speaking", "amplitude": 0.3})
+        threading.Thread(target=_simulate_speaking, args=(text,), daemon=True).start()
+
+
+_start_widget_servers()
 
 # 불필요한 경고 억제
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")

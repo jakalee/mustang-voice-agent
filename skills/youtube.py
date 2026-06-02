@@ -1,13 +1,16 @@
 """
 YouTube 재생 스킬
-Playwright로 YouTube 검색 후 첫 번째 영상을 자동 클릭하여 재생
+yt-dlp로 첫 번째 검색 결과 video ID 추출 →
+기존 Chrome(로그인 쿠키/YouTube Premium)으로 열어 광고 없이 재생
 """
 import subprocess
+import urllib.parse
 from typing import Optional
+
 
 SKILL_DEFINITION = {
     "name": "play_youtube",
-    "description": "YouTube에서 음악이나 동영상을 검색하여 첫 번째 영상을 자동으로 클릭 재생합니다",
+    "description": "YouTube에서 음악이나 동영상을 검색하여 첫 번째 영상을 Chrome으로 재생합니다",
     "enabled": True,
     "input_schema": {
         "type": "object",
@@ -22,62 +25,44 @@ SKILL_DEFINITION = {
 }
 
 
-def _play_with_playwright(query: str) -> Optional[str]:
-    """Playwright로 YouTube 검색 후 첫 번째 영상 클릭"""
-    try:
-        from playwright.sync_api import sync_playwright
-        import urllib.parse
-
-        search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
-
-        with sync_playwright() as p:
-            # 기존 Chrome 프로필 사용 (로그인 상태 유지)
-            try:
-                browser = p.chromium.launch_persistent_context(
-                    user_data_dir="/tmp/mustang-chrome",
-                    headless=False,
-                    channel="chrome",
-                    args=["--start-maximized"],
-                )
-                page = browser.pages[0] if browser.pages else browser.new_page()
-            except Exception:
-                browser = p.chromium.launch(headless=False)
-                page = browser.new_page()
-
-            page.goto(search_url, wait_until="domcontentloaded", timeout=15000)
-            page.wait_for_timeout(1500)
-
-            # 첫 번째 영상 썸네일 또는 제목 클릭
-            first_video = page.locator("ytd-video-renderer a#thumbnail").first
-            title = page.locator("ytd-video-renderer #video-title").first.inner_text(timeout=5000)
-            first_video.click()
-
-            page.wait_for_timeout(2000)
-            # 브라우저는 열어둔 채로 유지 (close 안 함)
-            return title.strip()
-
-    except Exception as e:
-        return None
-
-
-def _play_with_ytdlp(query: str) -> Optional[str]:
-    """yt-dlp로 video ID 추출 후 브라우저로 열기 (폴백)"""
+def _get_video_id(query: str) -> Optional[str]:
+    """yt-dlp로 첫 번째 검색 결과 video ID 반환"""
     try:
         result = subprocess.run(
-            ["yt-dlp", f"ytsearch1:{query}", "--get-id", "--no-playlist"],
+            ["yt-dlp", f"ytsearch1:{query}", "--get-id", "--no-playlist", "-q"],
             capture_output=True, text=True, timeout=15,
         )
         vid_id = result.stdout.strip().splitlines()[0] if result.stdout.strip() else None
-        if vid_id:
-            url = f"https://www.youtube.com/watch?v={vid_id}"
-            try:
-                subprocess.run(["open", "-a", "Google Chrome", url], check=True)
-            except Exception:
-                subprocess.run(["open", url])
-            return url
+        return vid_id
     except Exception:
-        pass
-    return None
+        return None
+
+
+def _open_in_chrome(url: str):
+    """기존 Chrome(로그인 세션/쿠키 유지)으로 URL 열기"""
+    try:
+        # AppleScript로 기존 Chrome 창에서 열기 (새 탭)
+        script = f'''
+        tell application "Google Chrome"
+            activate
+            if (count of windows) > 0 then
+                tell front window
+                    set newTab to make new tab
+                    set URL of newTab to "{url}"
+                end tell
+            else
+                open location "{url}"
+            end if
+        end tell
+        '''
+        subprocess.run(["osascript", "-e", script],
+                       capture_output=True, timeout=8)
+    except Exception:
+        # 폴백: open 명령
+        try:
+            subprocess.run(["open", "-a", "Google Chrome", url], check=True)
+        except Exception:
+            subprocess.run(["open", url])
 
 
 def execute(params: dict) -> str:
@@ -85,21 +70,14 @@ def execute(params: dict) -> str:
     if not query:
         return "검색어를 입력해주세요."
 
-    # 1순위: Playwright로 검색 → 첫 영상 자동 클릭
-    title = _play_with_playwright(query)
-    if title:
-        return f"YouTube에서 '{title}' 재생을 시작했습니다."
-
-    # 2순위: yt-dlp로 URL 추출 후 브라우저로 열기
-    url = _play_with_ytdlp(query)
-    if url:
+    # 1순위: yt-dlp로 video ID 추출 → 기존 Chrome으로 열기
+    vid_id = _get_video_id(query)
+    if vid_id:
+        url = f"https://www.youtube.com/watch?v={vid_id}"
+        _open_in_chrome(url)
         return f"YouTube에서 '{query}' 재생을 시작했습니다."
 
-    # 3순위: 검색 페이지만 열기
-    import urllib.parse
+    # 폴백: 검색 페이지를 기존 Chrome으로 열기
     search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
-    try:
-        subprocess.run(["open", "-a", "Google Chrome", search_url], check=True)
-    except Exception:
-        subprocess.run(["open", search_url])
-    return f"YouTube 검색 페이지를 열었습니다. '{query}'"
+    _open_in_chrome(search_url)
+    return f"yt-dlp로 영상을 찾지 못해 검색 페이지를 열었습니다. (pip install yt-dlp 로 설치 가능)"

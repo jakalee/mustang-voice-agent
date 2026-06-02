@@ -208,9 +208,9 @@ curl -o ~/Desktop/mustang-widget/p5.min.js \
   https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js
 ```
 
-`~/Desktop/mustang-widget/index.html` 파일은 이 저장소의 `widget_server.py` 실행 시  
-`http://localhost:8766/index.html` 로 자동 서빙됩니다.  
-또는 `file:///경로/mustang-widget/index.html` 로 직접 열 수 있습니다.
+위젯 HTML은 이 저장소의 `widget/index.html`에 포함되어 있습니다.  
+`mustang.py` 실행 시 `http://localhost:8766/widget/index.html` 로 자동 서빙됩니다.  
+또는 `file:///경로/mustang-voice-agent/widget/index.html` 로 직접 열 수 있습니다.
 
 **2. websockets 설치**
 
@@ -226,7 +226,7 @@ pip install websockets
 
 | 항목 | 값 |
 |------|----|
-| URL | `file:///Users/사용자명/Desktop/mustang-widget/index.html` |
+| URL | `file:///Users/사용자명/mustang-voice-agent/widget/index.html` |
 | Refresh | `0` (새로고침 없음) |
 | Width / Height | `400 / 400` |
 

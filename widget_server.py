@@ -20,7 +20,7 @@ import websockets
 _clients: set = set()
 _loop: Optional[asyncio.AbstractEventLoop] = None
 
-WIDGET_DIR = Path("/Users/jakallee/Desktop/mustang-widget")
+WIDGET_DIR = Path(__file__).parent / "widget"
 
 
 async def _ws_handler(websocket):

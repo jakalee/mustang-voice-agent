@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mustang AI</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100vw;
+    height: 100vh;
+    background: transparent;
+    overflow: hidden;
+  }
+  canvas {
+    display: block;
+    background: transparent;
+  }
+  #status {
+    position: absolute;
+    bottom: 18px;
+    width: 100%;
+    text-align: center;
+    font-family: -apple-system, sans-serif;
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.5);
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div id="status">대기 중</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+<script>
+// ─── 상태 관리 ───────────────────────────────────────────────
+const State = { IDLE: 'idle', LISTENING: 'listening', THINKING: 'thinking', SPEAKING: 'speaking' };
+let agentState = State.IDLE;
+let amplitude = 0;       // 0.0 ~ 1.0, 백엔드에서 수신
+let targetAmplitude = 0;
+
+const statusEl = document.getElementById('status');
+const statusText = {
+  idle:      '대기 중',
+  listening: '듣는 중',
+  thinking:  '생각 중',
+  speaking:  '말하는 중',
+};
+
+// ─── WebSocket 연결 ───────────────────────────────────────────
+function connectWS() {
+  try {
+    const ws = new WebSocket('ws://127.0.0.1:8765');
+    ws.onopen  = () => console.log('[mustang] WS 연결됨');
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.state) {
+          agentState = msg.state;
+          statusEl.textContent = statusText[agentState] || agentState;
+        }
+        if (msg.amplitude !== undefined) {
+          targetAmplitude = Math.min(1.0, msg.amplitude);
+        }
+      } catch (_) {}
+    };
+    ws.onclose = () => setTimeout(connectWS, 3000);
+    ws.onerror = () => ws.close();
+  } catch(e) {
+    setTimeout(connectWS, 3000);
+  }
+}
+connectWS();
+
+// ─── p5.js 스케치 ─────────────────────────────────────────────
+const CIRCLE_COUNT = 60;
+
+const sketch = (p) => {
+  const circles = [];
+  let CX, CY;
+
+  // 상태별 파라미터
+  const params = {
+    idle:      { speed: 0.0008, radiusBase: 0.38, radiusMod: 0.0,  alpha: 80,  color: [160, 200, 255] },
+    listening: { speed: 0.0018, radiusBase: 0.42, radiusMod: 0.04, alpha: 140, color: [100, 220, 180] },
+    thinking:  { speed: 0.004,  radiusBase: 0.44, radiusMod: 0.08, alpha: 160, color: [200, 160, 255] },
+    speaking:  { speed: 0.0025, radiusBase: 0.40, radiusMod: 0.0,  alpha: 200, color: [255, 200, 100] },
+  };
+
+  p.setup = () => {
+    const cnv = p.createCanvas(p.windowWidth, p.windowHeight);
+    cnv.elt.style.background = 'transparent';
+    CX = p.width / 2;
+    CY = p.height / 2;
+    p.noFill();
+    p.smooth();
+
+    for (let i = 0; i < CIRCLE_COUNT; i++) {
+      circles.push({
+        pointNum:   p.floor(p.random(24, 48)),
+        degree:     p.random(-p.PI, p.PI),
+        noiseScale: 0.0025,
+        seed:       p.random(200),
+        seedStep:   p.random(0.0008, 0.002),
+      });
+    }
+  };
+
+  p.draw = () => {
+    p.clear();
+
+    // 진폭 스무딩
+    amplitude += (targetAmplitude - amplitude) * 0.15;
+
+    const st = agentState;
+    const pm = params[st] || params.idle;
+
+    const ampMod = st === State.SPEAKING ? amplitude * 0.18 : pm.radiusMod;
+    const pulse   = st !== State.SPEAKING
+      ? Math.sin(p.millis() * 0.001) * pm.radiusMod
+      : 0;
+    const baseR = p.min(p.width, p.height) * (pm.radiusBase + pulse + ampMod);
+
+    circles.forEach((c, idx) => {
+      const startPts = [];
+      const [r, g, b] = pm.color;
+      const alphaVal = pm.alpha - idx * 0.5;
+
+      p.stroke(`rgba(${r},${g},${b},${(alphaVal / 255).toFixed(2)})`);
+      p.strokeWeight(0.6);
+      p.beginShape();
+
+      for (let j = 0; j < c.pointNum; j++) {
+        const rad = (j / c.pointNum) * p.TWO_PI + c.degree;
+        const nx  = baseR * Math.cos(rad) * c.noiseScale + CX;
+        const ny  = baseR * Math.sin(rad) * c.noiseScale + CY;
+        const pN  = p.noise(nx, ny, c.seed);
+        const pR  = baseR * p.noise(pN);
+        const x   = pR * Math.cos(rad) + CX;
+        const y   = pR * Math.sin(rad) + CY;
+        p.curveVertex(x, y);
+        if (j < 3) startPts.push({ x, y });
+      }
+      startPts.forEach(pt => p.curveVertex(pt.x, pt.y));
+      p.endShape();
+
+      c.seed += pm.speed * 2.5;
+    });
+  };
+
+  p.windowResized = () => {
+    p.resizeCanvas(p.windowWidth, p.windowHeight);
+    CX = p.width / 2;
+    CY = p.height / 2;
+  };
+};
+
+new p5(sketch);
+</script>
+</body>
+</html>

@@ -9,8 +9,7 @@
 
 ---
 
-<!-- Replace with your actual GIF -->
-<!-- ![demo](docs/demo.gif) -->
+![Mustang AI Demo](docs/demo.gif)
 
 ## ✨ What it does
 

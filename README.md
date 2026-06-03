@@ -15,7 +15,7 @@ macOS / Windows에서 동작하는 로컬 AI 음성 명령 에이전트입니다
 | 🗣️ 음성 인식 (STT) | Whisper 기반 한국어 음성 → 텍스트 |
 | 🔊 음성 합성 (TTS) | macOS 기본 TTS / Windows SAPI |
 | 🤖 AI 처리 | Claude Code CLI 기반 자연어 명령 처리 |
-| 🖥️ 바탕화면 위젯 | p5.js 파형 원이 AI 상태에 따라 실시간 반응 (GeekTool) |
+| 🖥️ 바탕화면 위젯 | p5.js 파형 원이 AI 상태에 따라 실시간 반응 (Übersicht) |
 | 📅 일정 관리 | Google 캘린더 조회/등록 |
 | 📧 이메일 | Gmail 확인 및 발송 |
 | 🌐 브라우저 | 웹 자동화 (Playwright) |
@@ -79,7 +79,7 @@ pip install -r requirements.txt
 cp config/.env.example config/.env
 ```
 
-`config/.env` 파일을 열어서 필요한 값만 입력합니다 (Gmail, 텔레그램은 선택):
+`config/.env` 파일을 열어서 필요한 값 입력 (Gmail, 텔레그램은 선택):
 
 ```env
 GMAIL_ADDRESS=your@gmail.com
@@ -168,13 +168,10 @@ pip install pyaudio
 pip install -r requirements.txt
 ```
 
-> `pyobjc-framework-Quartz`는 macOS 전용이라 Windows에서 오류가 나도 무시하세요.
-
 ### 3단계 — 설정 및 실행
 
 ```powershell
 copy config\.env.example config\.env
-# config\.env 에 필요한 값 입력
 
 venv\Scripts\activate
 python mustang.py
@@ -182,11 +179,9 @@ python mustang.py
 
 ---
 
-## 🖥️ 바탕화면 위젯 (macOS + GeekTool)
+## 🖥️ 바탕화면 위젯 (macOS + Übersicht)
 
-AI가 말하는 동안 p5.js 파형 원이 실시간으로 반응하는 위젯을 바탕화면에 배치할 수 있습니다.
-
-![위젯 상태](https://raw.githubusercontent.com/jakalee/mustang-voice-agent/main/docs/widget-preview.png)
+AI가 말하는 동안 p5.js 파형 원이 실시간으로 반응하는 위젯을 바탕화면에 배치합니다.
 
 ### 상태별 시각 효과
 
@@ -194,64 +189,133 @@ AI가 말하는 동안 p5.js 파형 원이 실시간으로 반응하는 위젯�
 |------|------|------|
 | 대기 중 | 🔵 파란색 | 느리고 잔잔한 파형 |
 | 듣는 중 | 🟢 초록색 | 중간 속도, 팽창 |
-| 생각 중 | 🟣 보라색 | 빠르고 복잡한 파형 |
-| 말하는 중 | 🟡 황금색 | 진폭에 따라 박동 |
+| 생각 중 | 🟣 보라색 | 빠르고 복잡한 파형 + 사용자 발화 표시 |
+| 말하는 중 | 🟡 황금색 | 진폭에 따라 박동 + AI 응답 표시 |
 
-### 설치 방법
+---
 
-**1. 위젯 파일 준비**
+### 1단계 — Übersicht 설치
 
-```bash
-# 위젯 폴더 생성 및 p5.js 다운로드
-mkdir -p ~/Desktop/mustang-widget
-curl -o ~/Desktop/mustang-widget/p5.min.js \
-  https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js
-```
+👉 **[Übersicht 다운로드](https://tracesof.net/uebersicht/)** (무료, macOS 전용)
 
-위젯 HTML은 이 저장소의 `widget/index.html`에 포함되어 있습니다.  
-`mustang.py` 실행 시 `http://localhost:8766/widget/index.html` 로 자동 서빙됩니다.  
-또는 `file:///경로/mustang-voice-agent/widget/index.html` 로 직접 열 수 있습니다.
+설치 후 메뉴바에 Übersicht 아이콘이 생깁니다.
 
-**2. websockets 설치**
+### 2단계 — 위젯 파일 복사
+
+Übersicht 위젯 폴더에 두 파일을 복사합니다.
 
 ```bash
-pip install websockets
+# Übersicht 위젯 폴더 열기
+open ~/Library/Application\ Support/Übersicht/widgets/
+
+# 위젯 파일 복사
+cp mustang-voice-agent/ubersicht/mustang-ai.jsx \
+   ~/Library/Application\ Support/Übersicht/widgets/
+
+cp mustang-voice-agent/ubersicht/mustang-starter.jsx \
+   ~/Library/Application\ Support/Übersicht/widgets/
 ```
 
-**3. GeekTool 설정**
-
-1. [GeekTool](https://www.tynsoe.org/geektool/) 설치
-2. GeekTool 실행 → **Web Geeklet** 드래그
-3. 아래 값 입력:
-
-| 항목 | 값 |
-|------|----|
-| URL | `file:///Users/사용자명/mustang-voice-agent/widget/index.html` |
-| Refresh | `0` (새로고침 없음) |
-| Width / Height | `400 / 400` |
-
-4. 바탕화면 원하는 위치로 이동
-
-**4. mustang.py 실행**
+또는 터미널 한 줄로:
 
 ```bash
-python mustang.py
+cp mustang-voice-agent/ubersicht/*.jsx \
+   ~/Library/Application\ Support/Übersicht/widgets/
 ```
 
-실행 시 `widget_server.py`가 자동으로 시작되며 위젯과 WebSocket으로 연결됩니다.
+### 3단계 — 위젯 위치/크기 조정
+
+`mustang-ai.jsx` 파일 상단에서 조정:
+
+```js
+const SIZE = 400        // 위젯 크기 (px)
+// 위치는 className의 left/top 값으로 조정
+// left: 20px;  top: 20px;  ← 왼쪽 상단
+// right: 20px; top: 20px;  ← 오른쪽 상단
+```
+
+### 4단계 — 새로고침
+
+**Übersicht 메뉴바 → Refresh All Widgets**
 
 ### 동작 원리
 
 ```
 "머스탱" 발화
     ↓
-mustang.py (faster-whisper 감지)
+mustang.py (faster-whisper 웨이크워드 감지)
     ↓
 WidgetBridge → WebSocket (ws://localhost:8765)
     ↓
-index.html (p5.js) → 파형 원 실시간 반응
+mustang-ai.jsx (Canvas 애니메이션) → 파형 원 실시간 반응
     ↓
-GeekTool → 바탕화면에 투명 위젯으로 표시
+Übersicht → 바탕화면에 투명 위젯으로 표시
+```
+
+---
+
+### 로그인 시 자동 시작 설정
+
+mustang.py가 로그인 시 자동으로 시작되도록 launchd에 등록합니다.
+
+```bash
+# plist 파일 생성
+cat > ~/Library/LaunchAgents/com.mustang.agent.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.mustang.agent</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/anaconda3/bin/python3</string>
+    <string>-u</string>
+    <string>/Users/사용자명/mustang-voice-agent/mustang.py</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/사용자명/mustang-voice-agent</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/anaconda3/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+    <key>KMP_DUPLICATE_LIB_OK</key>
+    <string>TRUE</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/tmp/mustang-agent.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/mustang-agent-err.log</string>
+</dict>
+</plist>
+EOF
+
+# 등록
+launchctl load ~/Library/LaunchAgents/com.mustang.agent.plist
+```
+
+> `/Users/사용자명/` 부분을 실제 사용자 이름으로 변경하세요. (`echo $HOME` 으로 확인)
+
+**mustang 시작/중지 명령어:**
+
+```bash
+# 중지
+launchctl unload ~/Library/LaunchAgents/com.mustang.agent.plist
+
+# 시작
+launchctl load ~/Library/LaunchAgents/com.mustang.agent.plist
+
+# 로그 확인
+tail -f /tmp/mustang-agent.log
 ```
 
 ---
@@ -279,8 +343,7 @@ GeekTool → 바탕화면에 투명 위젯으로 표시
 
 ```
 mustang-voice-agent/
-├── mustang.py            # 메인 실행 파일
-├── widget_server.py      # 위젯 WebSocket/HTTP 서버
+├── mustang.py            # 메인 실행 파일 (위젯 서버 내장)
 ├── requirements.txt
 ├── config/
 │   ├── .env              # 설정 파일 (직접 생성, git 제외)
@@ -292,12 +355,19 @@ mustang-voice-agent/
 │   ├── wakeword.py       # 웨이크워드 감지 (faster-whisper)
 │   ├── skill_manager.py  # 스킬 관리
 │   └── scheduler.py      # 예약 실행
-└── skills/
-    ├── check_calendar.py
-    ├── check_email.py
-    ├── google_drive.py
-    ├── browser_automation.py
-    └── ...
+├── skills/
+│   ├── check_calendar.py
+│   ├── check_email.py
+│   ├── google_drive.py
+│   ├── browser_automation.py
+│   ├── youtube.py        # YouTube 재생 (Chrome 쿠키 활용)
+│   └── ...
+├── widget/
+│   ├── index.html        # 위젯 HTML (레거시/브라우저 직접 열기용)
+│   └── p5.min.js
+└── ubersicht/
+    ├── mustang-ai.jsx    # Übersicht 메인 위젯 (파형 원 애니메이션)
+    └── mustang-starter.jsx  # Übersicht 자동 시작 위젯
 ```
 
 ---
@@ -308,16 +378,18 @@ mustang-voice-agent/
 A. Intel Python이 ARM Mac에서 실행되고 있습니다. Miniforge로 ARM Python을 새로 설치하세요.
 
 **Q. 웨이크워드가 잘 감지되지 않습니다**  
-A. "머스탱"을 또렷하고 조금 크게 발음해보세요. 주변 소음이 많으면 오탐이 생길 수 있습니다.  
-정확도를 높이려면 `core/wakeword.py`의 모델을 `"tiny"` → `"small"`로 변경하세요 (속도는 느려짐).
+A. "머스탱"을 또렷하고 조금 크게 발음해보세요. 정확도를 높이려면 `core/wakeword.py`의 모델을 `"tiny"` → `"small"`로 변경하세요 (속도는 느려짐).
 
 **Q. Claude가 응답하지 않습니다**  
 A. Claude Code CLI가 설치되어 있는지 확인하세요: `which claude`  
 없으면: `npm install -g @anthropic-ai/claude-code`
 
 **Q. 위젯이 바탕화면에 표시되지 않습니다**  
-A. GeekTool URL이 올바른지 확인하세요. `http://localhost:8766` 대신 `file://` 경로를 사용하세요.  
-mustang.py가 실행 중이어야 위젯 서버가 동작합니다.
+A. Übersicht 메뉴바 → Refresh All Widgets 를 클릭하세요.  
+mustang.py가 실행 중이어야 WebSocket 서버(8765)가 동작합니다.
+
+**Q. mustang.py를 끄고 싶습니다**  
+A. launchd로 등록한 경우: `launchctl unload ~/Library/LaunchAgents/com.mustang.agent.plist`
 
 ---
 

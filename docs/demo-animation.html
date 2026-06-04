@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 400px; height: 400px;
+    background: #000;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  canvas { position: absolute; top: 0; left: 0; }
+  #status {
+    position: absolute;
+    bottom: 52px;
+    width: 100%;
+    text-align: center;
+    font-family: -apple-system, sans-serif;
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.5);
+  }
+  #subtext {
+    position: absolute;
+    bottom: 28px;
+    width: 90%;
+    left: 5%;
+    text-align: center;
+    font-family: -apple-system, sans-serif;
+    font-size: 12px;
+    color: rgba(255,255,255,0.8);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+</style>
+</head>
+<body>
+<canvas id="c" width="400" height="400"></canvas>
+<div id="status">대기 중</div>
+<div id="subtext"></div>
+
+<script>
+const SIZE = 400, CX = 200, CY = 200, CIRCLES = 60;
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const PARAMS = {
+  idle:      { speed: 0.002,  rBase: 0.20, rMod: 0.00, alpha: 160, color: [160, 200, 255] },
+  listening: { speed: 0.0045, rBase: 0.22, rMod: 0.02, alpha: 210, color: [100, 220, 180] },
+  thinking:  { speed: 0.010,  rBase: 0.23, rMod: 0.03, alpha: 230, color: [200, 160, 255] },
+  speaking:  { speed: 0.006,  rBase: 0.21, rMod: 0.00, alpha: 255, color: [255, 200, 100] },
+};
+
+const STATUS_TEXT = {
+  idle: '대기 중', listening: '듣는 중', thinking: '생각 중', speaking: '말하는 중'
+};
+
+const circles = Array.from({ length: CIRCLES }, () => ({
+  pointNum: Math.floor(Math.random() * 24 + 24),
+  degree:   Math.random() * Math.PI * 2,
+  seed:     Math.random() * 200,
+}));
+
+let state = 'idle';
+let amplitude = 0, targetAmp = 0;
+let t0 = performance.now();
+
+// 시나리오 시퀀스
+const scenario = [
+  { at: 1.5,  state: 'idle',      text: '',                    subtext: '' },
+  { at: 3.0,  state: 'listening', text: '듣는 중',              subtext: '머스탱!' },
+  { at: 5.0,  state: 'thinking',  text: '생각 중',              subtext: '오늘 날씨 어때?' },
+  { at: 7.5,  state: 'speaking',  text: '말하는 중',            subtext: '서울 현재 22도, 맑음입니다.' },
+  { at: 11.0, state: 'idle',      text: '대기 중',              subtext: '' },
+  { at: 13.0, state: 'listening', text: '듣는 중',              subtext: '머스탱!' },
+  { at: 15.0, state: 'thinking',  text: '생각 중',              subtext: '유튜브에서 재즈 틀어줘' },
+  { at: 17.5, state: 'speaking',  text: '말하는 중',            subtext: '재즈 플레이리스트 재생할게요.' },
+  { at: 21.0, state: 'idle',      text: '대기 중',              subtext: '' },
+];
+
+let scenarioIdx = 0;
+
+function draw() {
+  const now = (performance.now() - t0) / 1000;
+  const pm = PARAMS[state] || PARAMS.idle;
+
+  // 시나리오 진행
+  while (scenarioIdx < scenario.length && now >= scenario[scenarioIdx].at) {
+    const s = scenario[scenarioIdx];
+    state = s.state;
+    document.getElementById('status').textContent = STATUS_TEXT[s.state] || s.state;
+    document.getElementById('subtext').textContent = s.subtext;
+    targetAmp = s.state === 'speaking' ? 0.7 : 0;
+    scenarioIdx++;
+  }
+
+  // 루프 (22초마다 반복)
+  if (now >= 23.0) {
+    t0 = performance.now();
+    scenarioIdx = 0;
+    state = 'idle';
+  }
+
+  // 진폭 스무딩
+  amplitude += (targetAmp - amplitude) * 0.08;
+
+  // speaking일 때 진폭 흔들기
+  const speakAmp = state === 'speaking'
+    ? amplitude * (0.8 + 0.2 * Math.sin(now * 12))
+    : 0;
+
+  const pulse  = state !== 'speaking' ? Math.sin(now * 2) * pm.rMod : 0;
+  const baseR  = SIZE * (pm.rBase + pulse + (state === 'speaking' ? speakAmp * 0.18 : pm.rMod));
+
+  ctx.clearRect(0, 0, SIZE, SIZE);
+
+  const [r, g, b] = pm.color;
+  circles.forEach((c, idx) => {
+    const a = Math.max(0, (pm.alpha - idx * 0.5) / 255);
+    ctx.strokeStyle = `rgba(${r},${g},${b},${a.toFixed(3)})`;
+    ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    for (let j = 0; j <= c.pointNum; j++) {
+      const angle = (j / c.pointNum) * Math.PI * 2 + c.degree;
+      const wobble = 1
+        + 0.06 * Math.sin(c.seed * 2.1 + angle * 3)
+        + 0.04 * Math.sin(c.seed * 3.7 + angle * 5)
+        + 0.02 * Math.sin(c.seed * 5.3 + angle * 7);
+      const curR = baseR * wobble;
+      const x = CX + curR * Math.cos(angle);
+      const y = CY + curR * Math.sin(angle);
+      j === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    c.seed += pm.speed;
+  });
+
+  requestAnimationFrame(draw);
+}
+
+draw();
+</script>
+</body>
+</html>

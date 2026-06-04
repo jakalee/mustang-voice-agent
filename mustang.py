@@ -30,7 +30,18 @@ _WIDGET_DIR = Path(__file__).parent / "widget"
 async def _ws_handler(websocket):
     _ws_clients.add(websocket)
     try:
-        await websocket.wait_closed()
+        async for raw in websocket:
+            try:
+                msg = json.loads(raw)
+                if "command" in msg:
+                    # 위젯에서 받은 텍스트 명령을 별도 스레드에서 처리
+                    threading.Thread(
+                        target=_handle_widget_command,
+                        args=(msg["command"],),
+                        daemon=True,
+                    ).start()
+            except Exception:
+                pass
     finally:
         _ws_clients.discard(websocket)
 
@@ -92,6 +103,28 @@ def _start_widget_servers():
     threading.Thread(target=_start_http_server, daemon=True).start()
     threading.Thread(target=_start_ws_server,   daemon=True).start()
     print("🎨 위젯 서버 시작됨 (ws://localhost:8765 | http://localhost:8766)")
+
+
+# 위젯 명령 처리 (MustangAgent 인스턴스 참조용)
+_agent_ref = None
+
+def _handle_widget_command(text: str):
+    """위젯에서 받은 텍스트 명령 처리"""
+    if not _agent_ref:
+        return
+    print(f"\n💬 [위젯] {text}")
+    WidgetBridge.set_thinking(text)
+    try:
+        response = _agent_ref._process_command(text)
+        if response in ("SLEEP", "TEXT_MODE", "VOICE_MODE"):
+            WidgetBridge.set_idle()
+            return
+        ev = WidgetBridge.set_speaking(response)
+        _agent_ref.speak(response)
+        ev.set()
+    except Exception as e:
+        WidgetBridge.set_idle()
+        print(f"  ⚠️ 위젯 명령 오류: {e}")
 
 
 def _simulate_speaking(stop_event: threading.Event):
@@ -171,8 +204,10 @@ def setup_google_env(creds: dict):
 
 class MustangAgent:
     def __init__(self, use_whisper: bool = True):
+        global _agent_ref
         self.use_whisper = use_whisper
         self._init_components()
+        _agent_ref = self
 
     def _init_components(self):
         print("🐎 Mustang AI 초기화 중...")

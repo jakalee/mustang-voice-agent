@@ -57,7 +57,10 @@ def _record_chunk(pa: pyaudio.PyAudio) -> bytes:
     frames = []
     try:
         for _ in range(LISTEN_FRAMES):
-            frames.append(stream.read(CHUNK, exception_on_overflow=False))
+            data = stream.read(CHUNK, exception_on_overflow=False)
+            if not data:
+                raise IOError("오디오 스트림에서 빈 데이터 수신 — 장치 재초기화 필요")
+            frames.append(data)
     finally:
         stream.stop_stream()
         stream.close()
@@ -91,8 +94,11 @@ def listen_for_wakeword(pa: pyaudio.PyAudio, stop_flag=None) -> bool:
     웨이크워드("머스탱")가 감지될 때까지 반복 청취.
     stop_flag: threading.Event — set되면 루프 종료 후 False 반환
     감지 성공 시 True 반환.
+    오디오 장치 오류 시 pa를 재초기화하고 재시도.
     """
+    import os
     model = _load_tiny()
+    _consecutive_errors = 0
 
     while True:
         if stop_flag and stop_flag.is_set():
@@ -100,14 +106,23 @@ def listen_for_wakeword(pa: pyaudio.PyAudio, stop_flag=None) -> bool:
 
         try:
             audio = _record_chunk(pa)
-        except Exception:
-            time.sleep(0.2)
+            _consecutive_errors = 0
+        except Exception as e:
+            _consecutive_errors += 1
+            # 연속 오류 3회 이상이면 함수 종료 → 호출자(mustang.py)가 pa 재초기화
+            if _consecutive_errors >= 3:
+                print(f"\n  [wakeword] 오디오 장치 오류 반복 — 재초기화 요청 ({e})")
+                return False  # mustang.py 루프에서 _init_audio() 후 재진입
+                _consecutive_errors = 0
+            else:
+                time.sleep(0.5)
             continue
 
         # 무음 → 건너뜀
         if _is_mostly_silent(audio):
             continue
 
+        tmp = None
         try:
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
                 f.write(audio)
@@ -124,8 +139,6 @@ def listen_for_wakeword(pa: pyaudio.PyAudio, stop_flag=None) -> bool:
             )
             text = "".join(s.text for s in segments)
 
-            import os; os.unlink(tmp)
-
             if text:
                 print(f"  [wakeword 후보] {text.strip()}", end="\r")
 
@@ -135,4 +148,10 @@ def listen_for_wakeword(pa: pyaudio.PyAudio, stop_flag=None) -> bool:
 
         except Exception as e:
             print(f"\n  [wakeword 오류] {e}")
-            continue
+        finally:
+            # 예외 발생 여부와 무관하게 임시 파일 반드시 삭제
+            if tmp:
+                try:
+                    os.unlink(tmp)
+                except Exception:
+                    pass

@@ -292,6 +292,16 @@ class MustangAgent:
         if any(w in text for w in ["종료", "잠자", "바이", "꺼줘"]):
             return "SLEEP"
 
+        if any(w in text for w in ["퇴근해", "퇴근", "컴퓨터 꺼", "컴퓨터 종료", "시스템 종료"]):
+            self.speak("네, 수고하셨습니다. 5초 후 컴퓨터를 종료합니다.")
+            import threading
+            def _shutdown():
+                import time, subprocess
+                time.sleep(5)
+                subprocess.run(["osascript", "-e", 'tell app "System Events" to shut down'])
+            threading.Thread(target=_shutdown, daemon=False).start()
+            return "SHUTDOWN"
+
         if any(w in text for w in ["텍스트 모드", "텍스트모드", "키보드 모드"]):
             return "TEXT_MODE"
 
@@ -363,6 +373,9 @@ class MustangAgent:
             self.speak("텍스트 모드로 전환합니다.")
             ev.set()
             return "TEXT_MODE"
+
+        if response == "SHUTDOWN":
+            return "SHUTDOWN"
 
         print(f"  🤖 응답: {response[:120]}{'...' if len(response) > 120 else ''}")
         ev = WidgetBridge.set_speaking(response)

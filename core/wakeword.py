@@ -79,7 +79,7 @@ def _has_wakeword(text: str) -> bool:
     return any(w.lower() in t for w in WAKEWORDS)
 
 
-def _is_mostly_silent(audio_bytes: bytes, threshold: int = 300) -> bool:
+def _is_mostly_silent(audio_bytes: bytes, threshold: int = 600) -> bool:
     """무음 청크는 Whisper에 보내지 않아 CPU 절약"""
     buf = io.BytesIO(audio_bytes)
     with wave.open(buf, "rb") as wf:

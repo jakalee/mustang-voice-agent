@@ -1,6 +1,7 @@
 # Wake word detection
 pvporcupine>=3.0.0
 pyaudio>=0.2.14
+webrtcvad>=2.0.10
 
 # Speech recognition (STT)
 SpeechRecognition>=3.10.0
@@ -34,6 +35,9 @@ yt-dlp>=2024.0.0
 
 # Widget bridge
 websockets>=12.0
+
+# System monitoring
+psutil>=5.9.0
 
 # Utilities
 requests>=2.31.0

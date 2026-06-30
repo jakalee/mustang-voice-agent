@@ -187,9 +187,6 @@ if _env_file.exists():
                 os.environ.setdefault(_k.strip(), _v.strip())
 
 # ── 설정 상수 ─────────────────────────────────────────────────────────────────
-PICOVOICE_ACCESS_KEY = os.environ.get("PICOVOICE_ACCESS_KEY", "")
-KEYWORD_PATH = os.environ.get("KEYWORD_PATH", "")
-KO_MODEL_PATH = os.environ.get("KO_MODEL_PATH", "")
 
 VOICE_CHAT_ID = 0       # 음성 모드용 고정 chat_id
 WAKEUP_MESSAGE = "네, 말씀하세요."
@@ -289,9 +286,6 @@ class MustangAgent:
         if any(w in text for w in ["스킬 목록", "스킬목록", "사용 가능한 스킬"]):
             return self.skill_manager.list_skills()
 
-        if any(w in text for w in ["종료", "잠자", "바이", "꺼줘"]):
-            return "SLEEP"
-
         if any(w in text for w in ["퇴근해", "퇴근", "컴퓨터 꺼", "컴퓨터 종료", "시스템 종료"]):
             self.speak("네, 수고하셨습니다. 5초 후 컴퓨터를 종료합니다.")
             import threading
@@ -301,6 +295,9 @@ class MustangAgent:
                 subprocess.run(["osascript", "-e", 'tell app "System Events" to shut down'])
             threading.Thread(target=_shutdown, daemon=False).start()
             return "SHUTDOWN"
+
+        if any(w in text for w in ["종료", "잠자", "바이", "꺼줘"]):
+            return "SLEEP"
 
         if any(w in text for w in ["텍스트 모드", "텍스트모드", "키보드 모드"]):
             return "TEXT_MODE"
@@ -385,14 +382,15 @@ class MustangAgent:
 
     def run_voice_mode(self):
         """웨이크워드 감지 루프 (faster-whisper 기반, 완전 무료)"""
-        from core.wakeword import listen_for_wakeword
+        from core.wakeword import listen_for_wakeword, _start_hotkey_listener
 
         self._init_audio()
         if not self.pa:
             print("❌ 마이크를 초기화할 수 없습니다.")
             return
 
-        print("🎤 준비 완료! '머스탱'이라고 불러보세요... (종료: Ctrl+C)\n")
+        _start_hotkey_listener()
+        print("🎤 준비 완료! '머스탱'이라고 불러보세요... 또는 ⌥Space (종료: Ctrl+C)\n")
         self._terminate_audio()
         self.speak(READY_MESSAGE)
         time.sleep(0.3)

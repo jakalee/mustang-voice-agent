@@ -44,6 +44,9 @@ python {work_dir}/run_skill.py <스킬명> '<JSON>'
 - "오늘 일정" → python {work_dir}/run_skill.py check_calendar '{{"action":"list","days":1}}'
 - "문자 보내줘" → python {work_dir}/run_skill.py send_sms '{{"recipient":"이름","message":"내용"}}'
 - "스크린샷" → python {work_dir}/run_skill.py control_screen '{{"action":"screenshot"}}'
+- "화면 보고 뭔지 말해줘" → python {work_dir}/run_skill.py control_screen '{{"action":"analyze_screen","question":"지금 화면에 무엇이 보이나요?"}}'
+- "지금 뭐 하고 있었어?" → python {work_dir}/run_skill.py control_screen '{{"action":"analyze_screen","question":"사용자가 지금 무슨 작업을 하고 있나요?"}}'
+- "지금 앱 뭐야?" → python {work_dir}/run_skill.py control_screen '{{"action":"get_ui_elements"}}'
 """
 
 

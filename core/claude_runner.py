@@ -167,6 +167,8 @@ def _ask_claude(chat_id: int, prompt: str) -> str:
 
     # 401 인증 만료 감지 → 터미널 자동 실행 후 안내
     if "401" in combined or "Invalid au" in combined or "authenticate" in combined.lower():
+        import logging
+        logging.getLogger("mustang").error(f"[Claude 401] raw_out={raw_out[:500]} raw_err={raw_err[:500]}")
         _auto_reauth()
         return "AUTH_ERROR"
 

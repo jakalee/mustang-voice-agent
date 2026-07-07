@@ -8,6 +8,7 @@
 import argparse
 import asyncio
 import json
+import logging
 import math
 import os
 import signal
@@ -20,6 +21,20 @@ import warnings
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from typing import Optional
+
+# ── 로그 설정 ────────────────────────────────────────────────────────────────
+_LOG_DIR = Path(__file__).parent / "logs"
+_LOG_DIR.mkdir(exist_ok=True)
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(_LOG_DIR / "mustang.log", encoding="utf-8"),
+        logging.StreamHandler(sys.stdout),
+    ],
+)
+logger = logging.getLogger("mustang")
 
 # ── 위젯 서버 (WebSocket + HTTP, mustang.py 내장) ────────────────────────────
 _ws_clients: set = set()
@@ -307,11 +322,16 @@ class MustangAgent:
 
         # Claude Code CLI로 처리
         try:
+            logger.info(f"[사용자] {text}")
             response = self.claude.chat(user_message=text, chat_id=chat_id)
             if response == "AUTH_ERROR":
-                return "Claude 인증이 만료됐어요. 터미널에서 로그인 중이에요. 브라우저에서 승인해주세요."
+                msg = "Claude 인증이 만료됐어요. 터미널에서 로그인 중이에요. 브라우저에서 승인해주세요."
+                logger.error(f"[AUTH_ERROR] 인증 만료 감지")
+                return msg
+            logger.info(f"[머스탱] {response}")
             return response
         except Exception as e:
+            logger.exception(f"[오류] _process_command 예외: {e}")
             return f"처리 중 오류가 발생했습니다: {e}"
 
     def _terminate_audio(self):

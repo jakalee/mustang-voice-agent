@@ -308,6 +308,8 @@ class MustangAgent:
         # Claude Code CLI로 처리
         try:
             response = self.claude.chat(user_message=text, chat_id=chat_id)
+            if response == "AUTH_ERROR":
+                return "Claude 인증이 만료됐어요. 터미널에서 로그인 중이에요. 브라우저에서 승인해주세요."
             return response
         except Exception as e:
             return f"처리 중 오류가 발생했습니다: {e}"

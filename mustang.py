@@ -9,6 +9,7 @@ import argparse
 import asyncio
 import json
 import logging
+import logging.handlers
 import math
 import os
 import signal
@@ -30,7 +31,13 @@ logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler(_LOG_DIR / "mustang.log", encoding="utf-8"),
+        logging.handlers.TimedRotatingFileHandler(
+            _LOG_DIR / "mustang.log",
+            when="midnight",
+            interval=1,
+            backupCount=7,        # 7일치만 보관
+            encoding="utf-8",
+        ),
         logging.StreamHandler(sys.stdout),
     ],
 )

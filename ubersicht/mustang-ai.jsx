@@ -10,11 +10,11 @@ const CMD_RESTART = 'launchctl kickstart -k gui/$(id -u)/com.mustang.agent'
 
 export const refreshFrequency = false
 
-const SIZE = 300
+const SIZE = 400
 
 export const className = `
-  left: 30px;
-  top: 5px;
+  left: 20px;
+  top: 20px;
   width: ${SIZE}px;
   height: ${SIZE}px;
   background: transparent;

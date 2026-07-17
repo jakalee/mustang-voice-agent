@@ -8,6 +8,8 @@
 import argparse
 import asyncio
 import json
+import logging
+import logging.handlers
 import math
 import os
 import signal
@@ -21,6 +23,26 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from typing import Optional
 
+# ── 로그 설정 ────────────────────────────────────────────────────────────────
+_LOG_DIR = Path(__file__).parent / "logs"
+_LOG_DIR.mkdir(exist_ok=True)
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.handlers.TimedRotatingFileHandler(
+            _LOG_DIR / "mustang.log",
+            when="midnight",
+            interval=1,
+            backupCount=7,        # 7일치만 보관
+            encoding="utf-8",
+        ),
+        logging.StreamHandler(sys.stdout),
+    ],
+)
+logger = logging.getLogger("mustang")
+
 # ── 위젯 서버 (WebSocket + HTTP, mustang.py 내장) ────────────────────────────
 _ws_clients: set = set()
 _ws_loop: Optional[asyncio.AbstractEventLoop] = None
@@ -30,7 +52,18 @@ _WIDGET_DIR = Path(__file__).parent / "widget"
 async def _ws_handler(websocket):
     _ws_clients.add(websocket)
     try:
-        await websocket.wait_closed()
+        async for raw in websocket:
+            try:
+                msg = json.loads(raw)
+                if "command" in msg:
+                    # 위젯에서 받은 텍스트 명령을 별도 스레드에서 처리
+                    threading.Thread(
+                        target=_handle_widget_command,
+                        args=(msg["command"],),
+                        daemon=True,
+                    ).start()
+            except Exception:
+                pass
     finally:
         _ws_clients.discard(websocket)
 
@@ -94,6 +127,28 @@ def _start_widget_servers():
     print("🎨 위젯 서버 시작됨 (ws://localhost:8765 | http://localhost:8766)")
 
 
+# 위젯 명령 처리 (MustangAgent 인스턴스 참조용)
+_agent_ref = None
+
+def _handle_widget_command(text: str):
+    """위젯에서 받은 텍스트 명령 처리"""
+    if not _agent_ref:
+        return
+    print(f"\n💬 [위젯] {text}")
+    WidgetBridge.set_thinking(text)
+    try:
+        response = _agent_ref._process_command(text)
+        if response in ("SLEEP", "TEXT_MODE", "VOICE_MODE"):
+            WidgetBridge.set_idle()
+            return
+        ev = WidgetBridge.set_speaking(response)
+        _agent_ref.speak(response)
+        ev.set()
+    except Exception as e:
+        WidgetBridge.set_idle()
+        print(f"  ⚠️ 위젯 명령 오류: {e}")
+
+
 def _simulate_speaking(stop_event: threading.Event):
     """self.speak()가 끝날 때까지 진폭 시뮬레이션 — stop_event로 종료 신호 수신"""
     start = time.time()
@@ -154,9 +209,6 @@ if _env_file.exists():
                 os.environ.setdefault(_k.strip(), _v.strip())
 
 # ── 설정 상수 ─────────────────────────────────────────────────────────────────
-PICOVOICE_ACCESS_KEY = os.environ.get("PICOVOICE_ACCESS_KEY", "")
-KEYWORD_PATH = os.environ.get("KEYWORD_PATH", "")
-KO_MODEL_PATH = os.environ.get("KO_MODEL_PATH", "")
 
 VOICE_CHAT_ID = 0       # 음성 모드용 고정 chat_id
 WAKEUP_MESSAGE = "네, 말씀하세요."
@@ -171,8 +223,10 @@ def setup_google_env(creds: dict):
 
 class MustangAgent:
     def __init__(self, use_whisper: bool = True):
+        global _agent_ref
         self.use_whisper = use_whisper
         self._init_components()
+        _agent_ref = self
 
     def _init_components(self):
         print("🐎 Mustang AI 초기화 중...")
@@ -254,6 +308,16 @@ class MustangAgent:
         if any(w in text for w in ["스킬 목록", "스킬목록", "사용 가능한 스킬"]):
             return self.skill_manager.list_skills()
 
+        if any(w in text for w in ["퇴근해", "퇴근", "컴퓨터 꺼", "컴퓨터 종료", "시스템 종료"]):
+            self.speak("네, 수고하셨습니다. 5초 후 컴퓨터를 종료합니다.")
+            import threading
+            def _shutdown():
+                import time, subprocess
+                time.sleep(5)
+                subprocess.run(["osascript", "-e", 'tell app "System Events" to shut down'])
+            threading.Thread(target=_shutdown, daemon=False).start()
+            return "SHUTDOWN"
+
         if any(w in text for w in ["종료", "잠자", "바이", "꺼줘"]):
             return "SLEEP"
 
@@ -265,9 +329,16 @@ class MustangAgent:
 
         # Claude Code CLI로 처리
         try:
+            logger.info(f"[사용자] {text}")
             response = self.claude.chat(user_message=text, chat_id=chat_id)
+            if response == "AUTH_ERROR":
+                msg = "Claude 인증이 만료됐어요. 터미널에서 로그인 중이에요. 브라우저에서 승인해주세요."
+                logger.error(f"[AUTH_ERROR] 인증 만료 감지")
+                return msg
+            logger.info(f"[머스탱] {response}")
             return response
         except Exception as e:
+            logger.exception(f"[오류] _process_command 예외: {e}")
             return f"처리 중 오류가 발생했습니다: {e}"
 
     def _terminate_audio(self):
@@ -329,6 +400,9 @@ class MustangAgent:
             ev.set()
             return "TEXT_MODE"
 
+        if response == "SHUTDOWN":
+            return "SHUTDOWN"
+
         print(f"  🤖 응답: {response[:120]}{'...' if len(response) > 120 else ''}")
         ev = WidgetBridge.set_speaking(response)
         self.speak(response)   # 블로킹 — TTS가 완전히 끝날 때까지 대기
@@ -337,14 +411,15 @@ class MustangAgent:
 
     def run_voice_mode(self):
         """웨이크워드 감지 루프 (faster-whisper 기반, 완전 무료)"""
-        from core.wakeword import listen_for_wakeword
+        from core.wakeword import listen_for_wakeword, _start_hotkey_listener
 
         self._init_audio()
         if not self.pa:
             print("❌ 마이크를 초기화할 수 없습니다.")
             return
 
-        print("🎤 준비 완료! '머스탱'이라고 불러보세요... (종료: Ctrl+C)\n")
+        _start_hotkey_listener()
+        print("🎤 준비 완료! '머스탱'이라고 불러보세요... 또는 ⌥Space (종료: Ctrl+C)\n")
         self._terminate_audio()
         self.speak(READY_MESSAGE)
         time.sleep(0.3)

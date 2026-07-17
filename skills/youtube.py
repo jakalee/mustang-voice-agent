@@ -39,13 +39,27 @@ def _get_video_id(query: str) -> Optional[str]:
 
 
 def _open_in_chrome(url: str):
-    """기존 Chrome(로그인 세션/쿠키 유지)으로 URL 열기"""
+    """기존 유튜브 탭이 있으면 거기서 재생, 없으면 새 탭"""
     try:
-        # AppleScript로 기존 Chrome 창에서 열기 (새 탭)
+        # 기존 유튜브 탭 찾아서 URL 교체 (중첩 재생 방지)
         script = f'''
         tell application "Google Chrome"
             activate
-            if (count of windows) > 0 then
+            set youtubeTab to missing value
+            repeat with w in windows
+                repeat with t in tabs of w
+                    if URL of t contains "youtube.com" then
+                        set youtubeTab to t
+                        set index of w to 1
+                        set active tab index of w to tab index of t
+                        exit repeat
+                    end if
+                end repeat
+                if youtubeTab is not missing value then exit repeat
+            end repeat
+            if youtubeTab is not missing value then
+                set URL of youtubeTab to "{url}"
+            else if (count of windows) > 0 then
                 tell front window
                     set newTab to make new tab
                     set URL of newTab to "{url}"
@@ -58,7 +72,6 @@ def _open_in_chrome(url: str):
         subprocess.run(["osascript", "-e", script],
                        capture_output=True, timeout=8)
     except Exception:
-        # 폴백: open 명령
         try:
             subprocess.run(["open", "-a", "Google Chrome", url], check=True)
         except Exception:

@@ -10,8 +10,8 @@ import time
 PREFERRED_VOICES = [
     "Yuna (Premium)",
     "Yuna",
-    "Eddy (한국어(한국))",
     "Sandy (한국어(한국))",
+    "Shelley (한국어(한국))",
 ]
 
 POST_SPEAK_DELAY = 0.4

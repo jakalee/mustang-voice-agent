@@ -44,6 +44,9 @@ python {work_dir}/run_skill.py <스킬명> '<JSON>'
 - "오늘 일정" → python {work_dir}/run_skill.py check_calendar '{{"action":"list","days":1}}'
 - "문자 보내줘" → python {work_dir}/run_skill.py send_sms '{{"recipient":"이름","message":"내용"}}'
 - "스크린샷" → python {work_dir}/run_skill.py control_screen '{{"action":"screenshot"}}'
+- "화면 보고 뭔지 말해줘" → python {work_dir}/run_skill.py control_screen '{{"action":"analyze_screen","question":"지금 화면에 무엇이 보이나요?"}}'
+- "지금 뭐 하고 있었어?" → python {work_dir}/run_skill.py control_screen '{{"action":"analyze_screen","question":"사용자가 지금 무슨 작업을 하고 있나요?"}}'
+- "지금 앱 뭐야?" → python {work_dir}/run_skill.py control_screen '{{"action":"get_ui_elements"}}'
 """
 
 
@@ -160,6 +163,14 @@ def _ask_claude(chat_id: int, prompt: str) -> str:
 
     raw_out = (proc.stdout or "").strip()
     raw_err = (proc.stderr or "").strip()
+    combined = raw_out + raw_err
+
+    # 401 인증 만료 감지 → 터미널 자동 실행 후 안내
+    if "401" in combined or "Invalid au" in combined or "authenticate" in combined.lower():
+        import logging
+        logging.getLogger("mustang").error(f"[Claude 401] raw_out={raw_out[:500]} raw_err={raw_err[:500]}")
+        _auto_reauth()
+        return "AUTH_ERROR"
 
     if proc.returncode != 0 and not raw_out:
         return f"Claude 오류 (exit={proc.returncode}):\n{raw_err[:1500]}"
@@ -175,6 +186,86 @@ def _ask_claude(chat_id: int, prompt: str) -> str:
         return result or "(빈 응답)"
     except json.JSONDecodeError:
         return raw_out or raw_err or "(빈 응답)"
+
+
+def _auto_reauth():
+    """터미널 열고 claude auth login 자동 실행"""
+    import threading
+    threading.Thread(target=_run_reauth, daemon=True).start()
+
+
+def _run_reauth():
+    """claude auth login URL 추출 → Playwright로 자동 승인"""
+    _playwright_click_login()
+
+
+def _playwright_click_login():
+    """터미널이 출력한 인증 URL을 열고 로그인 버튼 자동 클릭"""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print("⚠️  playwright 미설치 — 브라우저에서 직접 승인해주세요")
+        return
+
+    import time
+
+    # claude auth login이 터미널에 출력한 URL을 기다림 (최대 15초)
+    auth_url = _wait_for_auth_url(timeout=15)
+    if not auth_url:
+        print("⚠️  인증 URL을 찾지 못했습니다 — 브라우저에서 직접 승인해주세요")
+        return
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=False)
+            page = browser.new_page()
+            page.goto(auth_url, timeout=15000)
+
+            for selector in [
+                "button:has-text('Allow')",
+                "button:has-text('로그인')",
+                "button:has-text('Continue')",
+                "button:has-text('Authorize')",
+                "button[type='submit']",
+            ]:
+                try:
+                    page.wait_for_selector(selector, timeout=4000)
+                    page.click(selector)
+                    print("✅ 인증 버튼 자동 클릭 완료")
+                    time.sleep(2)
+                    break
+                except Exception:
+                    continue
+
+            browser.close()
+    except Exception as e:
+        print(f"⚠️  Playwright 자동 클릭 실패: {e}\n    브라우저에서 직접 승인해주세요")
+
+
+def _wait_for_auth_url(timeout: int = 15) -> str:
+    """claude auth login 프로세스 출력에서 https:// 인증 URL 추출"""
+    import time
+    try:
+        proc = subprocess.Popen(
+            [CLAUDE_CMD, "auth", "login"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            line = proc.stdout.readline()
+            if not line:
+                time.sleep(0.2)
+                continue
+            # URL 형태 줄 찾기
+            for token in line.split():
+                if token.startswith("https://") and ("anthropic" in token or "claude" in token):
+                    return token
+        proc.terminate()
+    except Exception as e:
+        print(f"⚠️  auth login 실행 오류: {e}")
+    return ""
 
 
 def reset_session(chat_id: int):

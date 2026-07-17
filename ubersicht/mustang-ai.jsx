@@ -1,8 +1,8 @@
 // Mustang AI Widget for Übersicht
-// p5.js 없이 Canvas API로 직접 구현 — WebSocket으로 AI 상태 수신
+// 클릭 → 텍스트 입력 → Enter → WebSocket으로 명령 전송
 
 import { React, run } from 'uebersicht'
-const { useEffect, useRef } = React
+const { useEffect, useRef, useState } = React
 
 const CMD_START   = 'launchctl start com.mustang.agent'
 const CMD_STOP    = 'launchctl stop com.mustang.agent'
@@ -10,19 +10,19 @@ const CMD_RESTART = 'launchctl kickstart -k gui/$(id -u)/com.mustang.agent'
 
 export const refreshFrequency = false
 
-const SIZE = 400
+const SIZE = 300
 
 export const className = `
-  left: 20px;
-  top: 20px;
+  left: 30px;
+  top: 5px;
   width: ${SIZE}px;
   height: ${SIZE}px;
-  pointer-events: none;
   background: transparent;
 
   canvas {
     position: absolute;
     top: 0; left: 0;
+    cursor: pointer;
   }
   #mu-status {
     position: absolute;
@@ -81,49 +81,75 @@ export const className = `
   #mu-controls button:active {
     background: rgba(255,255,255,0.4);
   }
+  #mu-input-wrap {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    box-sizing: border-box;
+  }
+  #mu-input {
+    width: 100%;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 20px;
+    padding: 7px 16px;
+    color: #fff;
+    font-family: -apple-system, sans-serif;
+    font-size: 13px;
+    outline: none;
+    backdrop-filter: blur(8px);
+  }
+  #mu-input::placeholder {
+    color: rgba(255,255,255,0.35);
+  }
 `
 
-// ── Perlin noise (간단한 구현) ──────────────────────────────────
-function makeNoise() {
-  const p = Array.from({length: 512}, (_, i) => i < 256 ? i : 0)
-  for (let i = 255; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [p[i], p[j]] = [p[j], p[i]]
-  }
-  for (let i = 0; i < 256; i++) p[i + 256] = p[i]
-  const fade = t => t * t * t * (t * (t * 6 - 15) + 10)
-  const lerp  = (a, b, t) => a + t * (b - a)
-  const grad  = (h, x, y, z) => {
-    const v = h & 15
-    const u = v < 8 ? x : y
-    const w = v < 4 ? y : (v === 12 || v === 14 ? x : z)
-    return ((v & 1) ? -u : u) + ((v & 2) ? -w : w)
-  }
-  return (x, y, z = 0) => {
-    const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255
-    x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z)
-    const u = fade(x), v = fade(y), w = fade(z)
-    const A  = p[X] + Y,  AA = p[A] + Z,  AB = p[A+1] + Z
-    const B  = p[X+1] + Y, BA = p[B] + Z, BB = p[B+1] + Z
-    return (lerp(
-      lerp(lerp(grad(p[AA], x, y, z),    grad(p[BA], x-1, y, z), u),
-           lerp(grad(p[AB], x, y-1, z),  grad(p[BB], x-1, y-1, z), u), v),
-      lerp(lerp(grad(p[AA+1], x, y, z-1),  grad(p[BA+1], x-1, y, z-1), u),
-           lerp(grad(p[AB+1], x, y-1, z-1),grad(p[BB+1], x-1, y-1, z-1), u), v), w)
-      + 1) / 2
-  }
+const PARAMS = {
+  idle:      { speed: 0.002,  rBase: 0.20, rMod: 0.00, alpha: 160, color: [160, 200, 255] },
+  listening: { speed: 0.0045, rBase: 0.22, rMod: 0.02, alpha: 210, color: [100, 220, 180] },
+  thinking:  { speed: 0.010,  rBase: 0.23, rMod: 0.03, alpha: 230, color: [200, 160, 255] },
+  speaking:  { speed: 0.006,  rBase: 0.21, rMod: 0.00, alpha: 255, color: [255, 200, 100] },
 }
 
-const PARAMS = {
-  idle:      { speed: 0.002,  rBase: 0.20, rMod: 0.00, alpha: 80,  color: [160, 200, 255] },
-  listening: { speed: 0.0045, rBase: 0.22, rMod: 0.02, alpha: 140, color: [100, 220, 180] },
-  thinking:  { speed: 0.010,  rBase: 0.23, rMod: 0.03, alpha: 160, color: [200, 160, 255] },
-  speaking:  { speed: 0.006,  rBase: 0.21, rMod: 0.00, alpha: 200, color: [255, 200, 100] },
-}
+const STATUS_TEXT = { idle: '대기 중', listening: '듣는 중', thinking: '생각 중', speaking: '말하는 중' }
 
 function MustangWidget() {
   const canvasRef = useRef(null)
-  const stateRef  = useRef({ state: 'idle', amplitude: 0, targetAmp: 0, subtext: '' })
+  const stateRef  = useRef({ state: 'idle', amplitude: 0, targetAmp: 0 })
+  const wsRef     = useRef(null)
+  const [inputVisible, setInputVisible] = useState(false)
+  const [inputVal, setInputVal]         = useState('')
+  const inputRef  = useRef(null)
+
+  // 입력창 열릴 때 포커스
+  useEffect(() => {
+    if (inputVisible && inputRef.current) {
+      setTimeout(() => inputRef.current && inputRef.current.focus(), 50)
+    }
+  }, [inputVisible])
+
+  // 명령 전송
+  function sendCommand(text) {
+    const ws = wsRef.current
+    if (!text.trim() || !ws || ws.readyState !== 1) return
+    ws.send(JSON.stringify({ command: text.trim() }))
+    setInputVal('')
+    setInputVisible(false)
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      sendCommand(inputVal)
+    } else if (e.key === 'Escape') {
+      setInputVisible(false)
+      setInputVal('')
+    }
+  }
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -132,24 +158,20 @@ function MustangWidget() {
     const CX = SIZE / 2, CY = SIZE / 2
     const CIRCLES = 60
 
-    // 원 초기화
     const circles = Array.from({ length: CIRCLES }, () => ({
-      pointNum:   Math.floor(Math.random() * 24 + 24),
-      degree:     Math.random() * Math.PI * 2,
-      noiseScale: 0.0025,
-      seed:       Math.random() * 200,
-      seedStep:   Math.random() * 0.0012 + 0.0008,
+      pointNum: Math.floor(Math.random() * 24 + 24),
+      degree:   Math.random() * Math.PI * 2,
+      seed:     Math.random() * 200,
     }))
 
     let animId
-    let t0 = performance.now()
+    const t0 = performance.now()
 
     function draw() {
       const { state, amplitude: amp } = stateRef.current
       const pm = PARAMS[state] || PARAMS.idle
       const t  = (performance.now() - t0) / 1000
 
-      // 진폭 스무딩
       stateRef.current.amplitude += (stateRef.current.targetAmp - stateRef.current.amplitude) * 0.12
 
       const ampMod = state === 'speaking' ? amp * 0.18 : pm.rMod
@@ -164,11 +186,8 @@ function MustangWidget() {
         ctx.strokeStyle = `rgba(${r},${g},${b},${a.toFixed(3)})`
         ctx.lineWidth   = 0.7
         ctx.beginPath()
-
-        const pts = []
         for (let j = 0; j <= c.pointNum; j++) {
           const angle = (j / c.pointNum) * Math.PI * 2 + c.degree
-          // sin 조합으로 유기적 파형 생성 (Perlin 대체)
           const wobble = 1
             + 0.06 * Math.sin(c.seed * 2.1 + angle * 3)
             + 0.04 * Math.sin(c.seed * 3.7 + angle * 5)
@@ -176,12 +195,10 @@ function MustangWidget() {
           const curR = baseR * wobble
           const x = CX + curR * Math.cos(angle)
           const y = CY + curR * Math.sin(angle)
-          if (j === 0) ctx.moveTo(x, y)
-          else ctx.lineTo(x, y)
+          j === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
         }
         ctx.closePath()
         ctx.stroke()
-
         c.seed += pm.speed
       })
 
@@ -189,13 +206,12 @@ function MustangWidget() {
     }
     draw()
 
-    // WebSocket 연결
-    const STATUS_TEXT = { idle: '대기 중', listening: '듣는 중', thinking: '생각 중', speaking: '말하는 중' }
-    let ws, wsTimer
-
+    // WebSocket
+    let wsTimer
     function connectWS() {
       try {
-        ws = new WebSocket('ws://127.0.0.1:8765')
+        const ws = new WebSocket('ws://127.0.0.1:8765')
+        wsRef.current = ws
         ws.onmessage = (e) => {
           try {
             const msg = JSON.parse(e.data)
@@ -210,7 +226,6 @@ function MustangWidget() {
               if (msg.text && subtextEl) subtextEl.textContent = msg.text
             }
             if (!msg.state && msg.text) {
-              const subtextEl = document.getElementById('mu-subtext')
               if (subtextEl) subtextEl.textContent = msg.text
             }
             if (msg.amplitude !== undefined) {
@@ -229,13 +244,18 @@ function MustangWidget() {
     return () => {
       cancelAnimationFrame(animId)
       clearTimeout(wsTimer)
-      if (ws) ws.close()
+      if (wsRef.current) wsRef.current.close()
     }
   }, [])
 
   return (
     <div>
-      <canvas ref={canvasRef} width={SIZE} height={SIZE} />
+      <canvas
+        ref={canvasRef}
+        width={SIZE}
+        height={SIZE}
+        onClick={() => { setInputVisible(v => !v); setInputVal('') }}
+      />
       <div id="mu-status">대기 중</div>
       <div id="mu-subtext"></div>
       <div id="mu-controls">
@@ -243,6 +263,19 @@ function MustangWidget() {
         <button title="재시작" onClick={() => run(CMD_RESTART)}>⟳</button>
         <button title="종료" onClick={() => run(CMD_STOP)}>⏹</button>
       </div>
+      {inputVisible && (
+        <div id="mu-input-wrap">
+          <input
+            id="mu-input"
+            ref={inputRef}
+            type="text"
+            placeholder="명령을 입력하세요..."
+            value={inputVal}
+            onChange={e => setInputVal(e.target.value)}
+            onKeyDown={handleKeyDown}
+          />
+        </div>
+      )}
     </div>
   )
 }

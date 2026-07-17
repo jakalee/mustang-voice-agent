@@ -1,8 +1,12 @@
 // Mustang AI Widget for Übersicht
 // p5.js 없이 Canvas API로 직접 구현 — WebSocket으로 AI 상태 수신
 
-import { React } from 'uebersicht'
+import { React, run } from 'uebersicht'
 const { useEffect, useRef } = React
+
+const CMD_START   = 'launchctl start com.mustang.agent'
+const CMD_STOP    = 'launchctl stop com.mustang.agent'
+const CMD_RESTART = 'launchctl kickstart -k gui/$(id -u)/com.mustang.agent'
 
 export const refreshFrequency = false
 
@@ -45,6 +49,37 @@ export const className = `
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  #mu-controls {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: flex;
+    gap: 6px;
+    pointer-events: auto;
+    opacity: 0.25;
+    transition: opacity 0.2s ease;
+  }
+  #mu-controls:hover {
+    opacity: 1;
+  }
+  #mu-controls button {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255,255,255,0.1);
+    color: rgba(255,255,255,0.85);
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    font-family: -apple-system, sans-serif;
+  }
+  #mu-controls button:hover {
+    background: rgba(255,255,255,0.25);
+  }
+  #mu-controls button:active {
+    background: rgba(255,255,255,0.4);
   }
 `
 
@@ -203,6 +238,11 @@ function MustangWidget() {
       <canvas ref={canvasRef} width={SIZE} height={SIZE} />
       <div id="mu-status">대기 중</div>
       <div id="mu-subtext"></div>
+      <div id="mu-controls">
+        <button title="시작" onClick={() => run(CMD_START)}>▶</button>
+        <button title="재시작" onClick={() => run(CMD_RESTART)}>⟳</button>
+        <button title="종료" onClick={() => run(CMD_STOP)}>⏹</button>
+      </div>
     </div>
   )
 }

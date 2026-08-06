@@ -75,3 +75,32 @@ claude --channels plugin:telegram@claude-plugins-official
 - MCP 서버(`bun server.ts`)가 뜨지 않으면 응답이 없습니다. 프로세스 목록에서
   `bun server.ts`가 살아있는지 확인하세요. 안 떠 있으면 세션을 껐다 다시
   켜보세요.
+
+## 지금은 "시작 프로그램 등록"이 아님
+
+이 문서에 있는 절차는 **일반 Terminal.app 창을 계속 켜두는 방식**입니다.
+tmux나 launchd(로그인 시 자동 실행) 같은 건 안 씁니다 — 그래서:
+
+- Mac을 재시작하거나 터미널 창을 닫으면 브릿지가 끊깁니다.
+- 다시 쓰려면 4번(`claude --channels ...`) 명령을 새 터미널에서 다시
+  실행해야 합니다.
+- 로그인 시 자동으로 뜨게 하려면 launchd LaunchAgent plist를 따로 만들어야
+  하는데, 이건 아직 안 만들었습니다 (필요해지면 별도로 설정).
+
+## 실전에서 겪은 문제들
+
+- **Claude Code CLI 자체 OAuth가 만료/취소될 수 있음.** `--channels` 세션
+  안에서 슬래시 명령이 `API Error: 401 OAuth access token has been revoked`
+  로 실패하면, 별도 터미널에서 `claude auth login` 실행 → 브라우저에서
+  재로그인 → 다시 시도.
+- **MCP 서버가 처음엔 안 뜨는 경우가 있었음.** 세션은 떠 있는데
+  `ps aux | grep bun`으로 봐도 `bun server.ts`가 안 보이면, 텔레그램에 메시지를
+  보내도 응답이 없거나 "Gateway shutting down" 메시지만 옵니다. 이럴 땐
+  세션 프로세스를 `kill`하고 `claude --channels ...`를 다시 실행하면
+  `bun server.ts`가 정상적으로 붙습니다.
+- **페어링 승인 프롬프트.** `/telegram:access pair <코드>`를 실행하면
+  access.json을 덮어써도 되는지 확인 프롬프트가 뜹니다 (`1. Yes` 선택).
+  자동화 스크립트로 이 창을 조작할 땐 `osascript`의
+  `System Events`(키 입력)는 손쉬운 사용(Accessibility) 권한이 없으면
+  막히므로, `Terminal`의 `do script "1" in <tab>`처럼 셸에 직접 문자를
+  흘려넣는 방식이 더 안정적이었습니다.

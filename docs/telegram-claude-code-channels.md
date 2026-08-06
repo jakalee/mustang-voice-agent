@@ -76,16 +76,42 @@ claude --channels plugin:telegram@claude-plugins-official
   `bun server.ts`가 살아있는지 확인하세요. 안 떠 있으면 세션을 껐다 다시
   켜보세요.
 
-## 지금은 "시작 프로그램 등록"이 아님
+## 로그인 시 자동 시작 (tmux + launchd)
 
-이 문서에 있는 절차는 **일반 Terminal.app 창을 계속 켜두는 방식**입니다.
-tmux나 launchd(로그인 시 자동 실행) 같은 건 안 씁니다 — 그래서:
+위의 4번 단계(`claude --channels ...`)를 매번 터미널을 열어 수동으로 치는 대신,
+tmux 세션 안에서 백그라운드로 띄우고 로그인 시 자동 실행되게 만들 수
+있습니다. 실제 사용 중인 스크립트/plist를 이 저장소에 그대로 넣어뒀습니다:
 
-- Mac을 재시작하거나 터미널 창을 닫으면 브릿지가 끊깁니다.
-- 다시 쓰려면 4번(`claude --channels ...`) 명령을 새 터미널에서 다시
-  실행해야 합니다.
-- 로그인 시 자동으로 뜨게 하려면 launchd LaunchAgent plist를 따로 만들어야
-  하는데, 이건 아직 안 만들었습니다 (필요해지면 별도로 설정).
+- [`scripts/telegram-channel/start-telegram-session.sh`](../scripts/telegram-channel/start-telegram-session.sh)
+- [`scripts/telegram-channel/com.mustang.claude-telegram.plist`](../scripts/telegram-channel/com.mustang.claude-telegram.plist)
+
+설치:
+
+```bash
+mkdir -p ~/.claude/scripts
+cp scripts/telegram-channel/start-telegram-session.sh ~/.claude/scripts/
+cp scripts/telegram-channel/com.mustang.claude-telegram.plist ~/Library/LaunchAgents/
+```
+
+등록/해제:
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.mustang.claude-telegram.plist    # 등록 (다음 로그인부터 자동 실행)
+launchctl unload ~/Library/LaunchAgents/com.mustang.claude-telegram.plist  # 해제
+```
+
+세션 들여다보기 / 직접 명령 넣기:
+
+```bash
+tmux attach -t claude-telegram   # 세션 안으로 들어가기 (Ctrl+B, D로 빠져나오기)
+```
+
+주의:
+- `RunAtLoad`는 **로그인할 때** 실행되는 것이지 Mac이 완전히 종료됐다가 켜질
+  때만이 아니라 로그아웃 후 재로그인해도 다시 뜹니다.
+- 세션이 이미 있으면(`tmux has-session`) 새로 안 띄우므로 중복 실행 걱정은
+  없지만, **다른 방식(수동 Terminal.app 등)으로 같은 봇을 또 띄우면 텔레그램
+  polling이 충돌**할 수 있으니 봇 하나당 세션은 하나만 유지하세요.
 
 ## 실전에서 겪은 문제들
 

@@ -18,6 +18,40 @@ POST_SPEAK_DELAY = 0.4
 
 _TTS_TMP = "/tmp/mustang_tts.aiff"
 
+# ── PiperVoice 기반 TTS (음성모드/vmode 워키토키 전용) ─────────────────────────
+_PIPER_MODEL_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "models", "piper", "ko_KR-kss-medium.onnx",
+)
+_PIPER_TMP = "/tmp/mustang_piper.wav"
+_piper_voice = None
+
+
+def _get_piper_voice():
+    global _piper_voice
+    if _piper_voice is None:
+        from piper import PiperVoice
+        _piper_voice = PiperVoice.load(_PIPER_MODEL_PATH)
+    return _piper_voice
+
+
+def speak_piper(text: str, blocking: bool = True):
+    """PiperVoice(로컬 ONNX 한국어 모델)로 합성 후 afplay로 재생"""
+    if not text:
+        return
+
+    def _run():
+        import wave
+        voice = _get_piper_voice()
+        with wave.open(_PIPER_TMP, "wb") as wf:
+            voice.synthesize_wav(text, wf)
+        subprocess.run(["afplay", _PIPER_TMP], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    if blocking:
+        _run()
+    else:
+        threading.Thread(target=_run, daemon=True).start()
+
 
 def _get_available_voice() -> str:
     try:

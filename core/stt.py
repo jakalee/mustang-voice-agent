@@ -8,7 +8,7 @@ import tempfile
 import threading
 import time
 import wave
-from typing import Optional
+from typing import Callable, Optional
 
 import pyaudio
 
@@ -57,6 +57,7 @@ def _record_with_vad(
     sample_rate: int = SAMPLE_RATE,
     silence_duration: float = SILENCE_DURATION,
     max_duration: float = MAX_RECORD_DURATION,
+    abort_check: Optional[Callable[[], bool]] = None,
 ) -> Optional[bytes]:
     """webrtcvad 기반 음성 녹음 — ML로 발화 끝 정확히 감지"""
     vad = webrtcvad.Vad(2)  # aggressiveness 0~3, 2=균형
@@ -77,6 +78,9 @@ def _record_with_vad(
 
     try:
         while True:
+            if abort_check is not None and abort_check():
+                return None
+
             data = stream.read(VAD_FRAME_SIZE, exception_on_overflow=False)
             frames.append(data)
 
@@ -116,6 +120,7 @@ def _record_with_energy(
     sample_rate: int = SAMPLE_RATE,
     silence_duration: float = SILENCE_DURATION,
     max_duration: float = MAX_RECORD_DURATION,
+    abort_check: Optional[Callable[[], bool]] = None,
 ) -> Optional[bytes]:
     """에너지 기반 음성 녹음 (webrtcvad 폴백)"""
     stream = pa.open(
@@ -134,6 +139,9 @@ def _record_with_energy(
 
     try:
         while True:
+            if abort_check is not None and abort_check():
+                return None
+
             data = stream.read(CHUNK, exception_on_overflow=False)
             frames.append(data)
 
@@ -169,11 +177,16 @@ def record_audio(
     sample_rate: int = SAMPLE_RATE,
     silence_duration: float = SILENCE_DURATION,
     max_duration: float = MAX_RECORD_DURATION,
+    abort_check: Optional[Callable[[], bool]] = None,
 ) -> Optional[bytes]:
-    """마이크에서 음성 녹음 (webrtcvad 우선, 폴백은 에너지 기반)"""
+    """마이크에서 음성 녹음 (webrtcvad 우선, 폴백은 에너지 기반).
+
+    abort_check: 매 프레임마다 호출되며 True를 반환하면 즉시 녹음을 버리고
+    None을 리턴한다 (예: 스피커 재생 중임을 알리는 뮤트 플래그).
+    """
     if VAD_AVAILABLE:
-        return _record_with_vad(pa, sample_rate, silence_duration, max_duration)
-    return _record_with_energy(pa, sample_rate, silence_duration, max_duration)
+        return _record_with_vad(pa, sample_rate, silence_duration, max_duration, abort_check)
+    return _record_with_energy(pa, sample_rate, silence_duration, max_duration, abort_check)
 
 
 _whisper_model = None

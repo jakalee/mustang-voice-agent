@@ -19,6 +19,9 @@ google-api-python-client>=2.120.0
 # Telegram bot
 python-telegram-bot>=21.0.0
 
+# 음성모드(vmode) TTS
+piper-tts>=1.7.0
+
 # Browser automation
 playwright>=1.42.0
 

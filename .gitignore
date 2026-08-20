@@ -22,3 +22,7 @@ data/screenshots/
 # 웨이크워드 모델 (용량 큼, 개인 라이선스)
 *.ppn
 *.pv
+
+# Piper TTS 음성 모델 (용량 큼)
+models/piper/*.onnx
+models/piper/*.onnx.json

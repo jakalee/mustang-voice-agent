@@ -1,0 +1,1 @@
+{"name":"재규어","description":"Hermes 에이전트 재규어(Jaguar)와 음성으로 대화하고 결과를 안경 화면에 표시합니다.","pages":["pages/index/index"],"permissions":["INTERNET","RECORD_AUDIO"],"window":{"navigationBarTitleText":"재규어봇","backgroundColor":"#000000"}}

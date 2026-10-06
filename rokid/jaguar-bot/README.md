@@ -1,12 +1,11 @@
 # Rokid AIUI 예제: 재규어봇 (Hermes Agent 클라이언트)
 
 Rokid 안경에서 음성으로 말하면 Hermes Agent(OpenAI 호환 `/v1/chat/completions`)에 전달하고, 응답을 안경 화면에 스트리밍으로 표시하는 AIUI 앱 소스입니다.
-전체 설정 방법(Hermes 서버, 역방향 프록시, AIUI Studio, 안경 반영)은 [docs/rokid/README.md](../../docs/rokid/README.md)를 보세요.
+전체 설정 방법(Hermes 서버, 역방향 프록시, AIUI Studio, 안경 반영)은 [Rokid 안경 × Hermes 설정 가이드](../README.md)를 보세요.
 
 ## 구성
 
 ```
-jaguar-bot/
 ├── app.json                # 앱 메타/권한 (INTERNET, RECORD_AUDIO)
 ├── app.js                  # 앱 엔트리
 ├── AGENTS.md               # 에이전트 매니페스트
@@ -15,7 +14,7 @@ jaguar-bot/
 
 ## 사용 전 반드시 수정
 
-`jaguar-bot/pages/index/index.ink` 상단 `CONFIG`:
+`pages/index/index.ink` 상단 `CONFIG`:
 
 | 항목 | 설명 |
 |---|---|

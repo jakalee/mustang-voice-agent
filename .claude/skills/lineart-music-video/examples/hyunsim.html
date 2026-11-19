@@ -1,0 +1,907 @@
+<title>현심</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nanum+Brush+Script&family=Gowun+Batang:wght@400;700&display=swap">
+<style>
+/* 레이아웃: 어두운 고정 페이지 가운데 9:16 필름 한 장, 아래 재생 컨트롤 */
+:root{
+  --page:#0d1018; --card:#161b26; --line:#2a3242; --fg:#efe6d2; --muted:#949bab; --gold:#ffc066;
+  --display:"Gowun Batang", "AppleMyungjo", "Batang", serif;
+  color-scheme:dark;
+}
+html,body{background:var(--page);color:var(--fg)}
+body{font-family:var(--display);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 28px}
+.wrap{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-weight:700;font-size:26px;margin:0;letter-spacing:.12em}
+header p{margin:0;color:var(--muted);font-size:13px}
+.stage{position:relative;aspect-ratio:9/16;width:min(100%, calc(80vh * 9 / 16));min-width:min(100%,260px);max-width:100%;margin:0 auto;background:#000;border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+canvas{display:block;width:100%;height:100%}
+#big{position:absolute;inset:0;margin:auto;width:84px;height:84px;border-radius:50%;border:1px solid rgba(255,214,150,.6);background:rgba(13,16,24,.5);color:#ffe2b0;font:600 15px var(--display);cursor:pointer}
+button:focus-visible,input:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.bar{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:10px 12px}
+.bar button{background:none;border:1px solid var(--line);color:var(--fg);border-radius:4px;padding:6px 12px;font:14px var(--display);cursor:pointer;min-width:64px}
+#seek{flex:1;min-width:0;accent-color:var(--gold)}
+#time{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px;white-space:nowrap}
+.note{color:var(--muted);font-size:12.5px;line-height:1.6;margin:0}
+</style>
+
+<div class="wrap">
+  <header><h1>현심</h1><p>라인아트 뮤직비디오 · 9:16 · 2:46</p></header>
+  <div class="stage">
+    <canvas id="c" width="1080" height="1920" aria-label="겨울에 만난 촛불 같은 사람, 현심에게 바치는 라인아트 뮤직비디오"></canvas>
+    <button id="big" type="button">재생</button>
+  </div>
+  <div class="bar">
+    <button id="pp" type="button">재생</button>
+    <input id="seek" type="range" min="0" max="166" step="0.05" value="0" aria-label="재생 위치">
+    <span id="time">0:00 / 2:46</span>
+  </div>
+  <p class="note">작사·작곡 Gemini · 아트 디자인 Claude Code · 감독 성수</p>
+</div>
+<audio id="au" src="song.mp3" preload="auto"></audio>
+
+<script>
+(() => {
+const W = 1080, H = 1920, DUR = 166;
+const C = document.getElementById('c'), X = C.getContext('2d');
+const mk = (w = W, h = H) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const LA = mk(), LAX = LA.getContext('2d');
+const DUMMY = mk(4, 4).getContext('2d');
+let ctx = X;
+
+// ---------- 수학 ----------
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, u) => a + (b - a) * u;
+const sm = (a, b, x) => { const u = clamp((x - a) / (b - a)); return u * u * (3 - 2 * u); };
+const win = (t, a, b, f = 0.6) => sm(a - f, a + f * 0.3, t) * (1 - sm(b - f * 0.3, b + f, t));
+const hh = (a, b = 0) => { const s = Math.sin(a * 127.1 + b * 311.7 + 0.123) * 43758.5453; return s - Math.floor(s); };
+const hexA = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${clamp(a)})`; };
+const mixHex = (h1, h2, u) => { const a = parseInt(h1.slice(1), 16), b = parseInt(h2.slice(1), 16); u = clamp(u);
+  const r = Math.round(lerp(a >> 16, b >> 16, u)), g = Math.round(lerp((a >> 8) & 255, (b >> 8) & 255, u)), bl = Math.round(lerp(a & 255, b & 255, u));
+  return '#' + ((1 << 24) + (r << 16) + (g << 8) + bl).toString(16).slice(1); };
+const easeOut = u => 1 - Math.pow(1 - clamp(u), 3);
+const easeIO = u => { u = clamp(u); return u < .5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2; };
+
+// ---------- 색 ----------
+const NIGHT = '#11151f', CREAM = '#efe6d2', DIM = '#7d8495', GOLD = '#ffc066', PINK = '#f3a6b8', LEAF = '#9cc28a', AUT = '#e0884a', SNOW = '#f4f6fb', PAPER = '#f1e7d6', SEPIA = '#2a2420';
+const P = { bg: NIGHT, ink: CREAM, fill: NIGHT, accent: '#c9584a' };
+
+// ---------- 펜 (그려지는 순서 공개 기능 포함) ----------
+let fb = 0, J = 0.9;
+const RV = { on: false, n: 0, lim: Infinity };
+const RN = {};
+function gate() { if (!RV.on) return 1; const i = RV.n++; if (i + 1 <= RV.lim) return 1; if (i >= RV.lim) return 0; return RV.lim - i; }
+function reveal(key, u, fn) {
+  if (u <= 0) return;
+  if (!(key in RN)) { const sv = ctx; ctx = DUMMY; RV.on = true; RV.n = 0; RV.lim = Infinity; try { fn(); } finally { ctx = sv; } RN[key] = RV.n; }
+  RV.on = u < 1; RV.n = 0; RV.lim = u * RN[key]; fn(); RV.on = false;
+}
+function jp(x, y, k) { return [x + (hh(k, fb) - .5) * 2 * J, y + (hh(k + 71.3, fb) - .5) * 2 * J]; }
+function trace(q, closed) {
+  const n = q.length;
+  if (n === 2) { ctx.moveTo(q[0][0], q[0][1]); ctx.lineTo(q[1][0], q[1][1]); return; }
+  if (closed) { const m = (i, j) => [(q[i][0] + q[j][0]) / 2, (q[i][1] + q[j][1]) / 2];
+    const s = m(n - 1, 0); ctx.moveTo(s[0], s[1]);
+    for (let i = 0; i < n; i++) { const e = m(i, (i + 1) % n); ctx.quadraticCurveTo(q[i][0], q[i][1], e[0], e[1]); }
+    ctx.closePath(); return; }
+  ctx.moveTo(q[0][0], q[0][1]);
+  for (let i = 1; i < n - 1; i++) { const e = [(q[i][0] + q[i + 1][0]) / 2, (q[i][1] + q[i + 1][1]) / 2]; ctx.quadraticCurveTo(q[i][0], q[i][1], e[0], e[1]); }
+  ctx.lineTo(q[n - 1][0], q[n - 1][1]);
+}
+const plen = q => { let L = 0; for (let i = 1; i < q.length; i++) L += Math.hypot(q[i][0] - q[i - 1][0], q[i][1] - q[i - 1][1]); return L; };
+function pen(pts, w = 2.2, k = 0, o = {}) {
+  const f = gate(); if (f <= 0) return;
+  const q = pts.map((p, i) => jp(p[0], p[1], k + i * 1.37));
+  ctx.beginPath();
+  if (o.sharp) { ctx.moveTo(q[0][0], q[0][1]); for (let i = 1; i < q.length; i++) ctx.lineTo(q[i][0], q[i][1]); if (o.closed) ctx.closePath(); }
+  else trace(q, !!o.closed);
+  if (o.fill && f >= 1) { ctx.fillStyle = o.fill; ctx.fill(); }
+  if (w > 0) {
+    if (f < 1) { const L = plen(o.closed ? q.concat([q[0]]) : q) * 1.08 + 4; ctx.setLineDash([L * f, L * 2]); }
+    ctx.lineWidth = w; ctx.strokeStyle = o.col || P.ink; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
+    if (f < 1) ctx.setLineDash([]);
+  }
+}
+const ln = (x1, y1, x2, y2, w = 2, k = 0, col) => { const mx = (x1 + x2) / 2 + (hh(k, 3.3) - .5) * Math.hypot(x2 - x1, y2 - y1) * 0.02, my = (y1 + y2) / 2; pen([[x1, y1], [mx, my], [x2, y2]], w, k, { col }); };
+function ell(x, y, rx, ry, lw = 2, k = 0, o = {}) {
+  const n = o.n || 14, pts = [];
+  for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; const cx = Math.cos(a) * rx, cy = Math.sin(a) * ry, r = o.rot || 0;
+    pts.push([x + cx * Math.cos(r) - cy * Math.sin(r), y + cx * Math.sin(r) + cy * Math.cos(r)]); }
+  pen(pts, lw, k, { closed: true, fill: o.fill, col: o.col });
+}
+function box(x, y, w, h, lw = 2, k = 0, o = {}) { pen([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], lw, k, { sharp: true, closed: true, fill: o.fill, col: o.col }); }
+function glow(x, y, r, col, a) {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, hexA(col, a)); g.addColorStop(0.3, hexA(col, a * 0.5)); g.addColorStop(1, hexA(col, 0));
+  ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+}
+function bg(col) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = col; ctx.fillRect(0, 0, W, H); }
+
+// ---------- 입자 ----------
+function snow(t, n, o = {}) {
+  const wind = o.wind || 0, sp = o.speed || 60, a0 = o.alpha == null ? 0.9 : o.alpha, col = o.col || SNOW;
+  for (let i = 0; i < n; i++) {
+    const s = 1.2 + hh(i, 2) * 3.6, v = sp * (0.5 + s / 4);
+    const y = ((hh(i, 1) * (H + 200) + t * v) % (H + 200)) - 100;
+    let x = (hh(i, 3) * (W + 400) + t * wind * (0.6 + s / 5) + Math.sin(t * 0.8 + i) * 18) % (W + 400); if (x < 0) x += W + 400; x -= 200;
+    ctx.globalAlpha = a0 * (0.4 + s / 6);
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, s, 0, Math.PI * 2); ctx.fill();
+    if (wind > 200) { ctx.strokeStyle = col; ctx.lineWidth = s * 0.6; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - wind * 0.05 * s, y - 4); ctx.stroke(); }
+  }
+  ctx.globalAlpha = 1;
+}
+function petal(x, y, r, rot, col, a) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.globalAlpha = a;
+  ctx.beginPath(); ctx.moveTo(0, -r); ctx.quadraticCurveTo(r * 0.9, -r * 0.2, 0, r); ctx.quadraticCurveTo(-r * 0.9, -r * 0.2, 0, -r);
+  ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = hexA('#7a3346', 0.5); ctx.stroke(); ctx.restore(); ctx.globalAlpha = 1;
+}
+function petals(t, n, col, o = {}) {
+  const sp = o.speed || 90, wind = o.wind == null ? 60 : o.wind, a = o.alpha == null ? 1 : o.alpha;
+  for (let i = 0; i < n; i++) {
+    const v = sp * (0.6 + hh(i, 11) * 0.8);
+    const y = ((hh(i, 12) * (H + 300) + t * v) % (H + 300)) - 150;
+    let x = (hh(i, 13) * (W + 400) + t * wind + Math.sin(t * 1.3 + i * 2) * 40) % (W + 400); if (x < 0) x += W + 400; x -= 200;
+    petal(x, y, 6 + hh(i, 14) * 7, t * (1 + hh(i, 15) * 2) + i, col, a * (0.6 + 0.4 * hh(i, 16)));
+  }
+}
+function flower(x, y, r, n, col, rot, lw, k, bloom) {
+  if (bloom <= 0) return;
+  const rr = r * easeOut(bloom);
+  for (let i = 0; i < n; i++) { const a = rot + i / n * Math.PI * 2, a1 = a - Math.PI / n * 0.9, a2 = a + Math.PI / n * 0.9;
+    pen([[x, y], [x + Math.cos(a1) * rr * 0.8, y + Math.sin(a1) * rr * 0.8], [x + Math.cos(a) * rr, y + Math.sin(a) * rr], [x + Math.cos(a2) * rr * 0.8, y + Math.sin(a2) * rr * 0.8], [x, y]], lw, k + i * 7, { col }); }
+  ctx.fillStyle = GOLD; ctx.beginPath(); ctx.arc(x, y, rr * 0.16, 0, Math.PI * 2); ctx.fill();
+}
+
+// ---------- 사람 (옆모습) ----------
+const SW = 130;
+function legFoot(q, d, S, lift) {
+  if (q < d) { const u = q / d; return [S * d / 2 - S * d * u, 0]; }
+  const u = (q - d) / (1 - d), e = 0.5 - 0.5 * Math.cos(Math.PI * u);
+  return [-S * d / 2 + S * d * e, -lift * Math.sin(Math.PI * u)];
+}
+function ik(hx, hy, fx, fy, a, b, sgn) {
+  const dx = fx - hx, dy = fy - hy, d = Math.min(Math.hypot(dx, dy), a + b - 0.01);
+  const ang = Math.atan2(dy, dx), al = Math.acos(clamp((a * a + d * d - b * b) / (2 * a * d), -1, 1));
+  const k = ang - sgn * al; return [hx + a * Math.cos(k), hy + a * Math.sin(k)];
+}
+function limb(p, w0, w1, k, lw, far) {
+  const n = p.length, L = [], R = [];
+  for (let i = 0; i < n; i++) { const a = p[Math.max(0, i - 1)], b = p[Math.min(n - 1, i + 1)];
+    let dx = b[0] - a[0], dy = b[1] - a[1]; const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+    const w = lerp(w0, w1, i / (n - 1)) / 2; L.push([p[i][0] - dy * w, p[i][1] + dx * w]); R.push([p[i][0] + dy * w, p[i][1] - dx * w]); }
+  const col = far ? mixHex(P.ink, P.fill, 0.4) : P.ink;
+  if (!RV.on || gate() >= 1) { ctx.beginPath(); trace(L.concat(R.slice().reverse()).map((q, i) => jp(q[0], q[1], k + i)), true); ctx.fillStyle = far ? mixHex(P.fill, P.ink, 0.08) : P.fill; ctx.fill(); }
+  pen(L, lw, k + 20, { col }); pen(R, lw, k + 40, { col });
+}
+/* o: phase, stand, scale, hair(색), fem, stoop(0-1), scarf, umbrella, hold(손잡기: 1 앞으로, -1 뒤로) , alpha */
+function person(x, y, o) {
+  const s = o.scale || 1.5, st = o.stand || 0, lw = 2.4 / s, g = 0;
+  const S = SW * (1 - 0.25 * (o.stoop || 0)), d = 0.62, lift = 14;
+  const p = o.phase || 0, stoop = o.stoop || 0;
+  const lean = 0.04 + stoop * 0.16;
+  const bob = 2.2 * Math.cos(4 * Math.PI * (p - d / 2)) * (1 - st);
+  const hipH = lerp(95.5 + bob - stoop * 3, 99 - stoop * 3, st);
+  ctx.save(); ctx.translate(x, y); ctx.scale((o.dir || 1) * s, s); if (o.alpha != null) ctx.globalAlpha = o.alpha;
+  const hip = [0, -hipH];
+  const feet = [0, 1].map(i => { const q = ((p + i * 0.5) % 1 + 1) % 1; const f = legFoot(q, d, S, lift); return [lerp(f[0], i ? -7 : 7, st), lerp(f[1], 0, st)]; });
+  const sh = [hip[0] + Math.sin(lean) * 72, hip[1] - Math.cos(lean) * 72];
+  const head = [sh[0] + Math.sin(lean + stoop * 0.3) * 27, sh[1] - Math.cos(lean + stoop * 0.3) * 27];
+  const arm = (i) => {
+    const q = ((p + i * 0.5) % 1 + 1) % 1, sw = 0.4 * (1 - st);
+    let a1 = Math.PI / 2 + sw * Math.cos(2 * Math.PI * q) + lean * 0.5, bend = 0.28 + 0.25 * Math.max(0, -Math.cos(2 * Math.PI * q)) * (1 - st) + 0.12 * st;
+    if (o.umbrella && i === 0) { a1 = Math.PI / 2 - 0.55; bend = 1.65; }
+    if (o.hold && i === (o.hold > 0 ? 0 : 1)) { a1 = Math.PI / 2 - 0.42 * o.hold; bend = 0.1 * o.hold; }
+    if (o.candle && i === 0) { a1 = Math.PI / 2 - 0.35; bend = 1.45; }
+    const e = [sh[0] + Math.cos(a1) * 36, sh[1] + Math.sin(a1) * 36], a2 = a1 - bend, hd = [e[0] + Math.cos(a2) * 34, e[1] + Math.sin(a2) * 34];
+    return [[sh[0] + (i ? -3 : 3), sh[1] + 4], e, hd];
+  };
+  const leg = i => { const k = ik(hip[0], hip[1], feet[i][0], feet[i][1] - 4, 51, 51, 1); return [[hip[0] + (i ? -4 : 4), hip[1]], k, [feet[i][0], feet[i][1] - 4]]; };
+  const shoe = (f, k, far) => pen([[f[0] - 7, f[1] - 2], [f[0] - 6, f[1] - 9], [f[0] + 9, f[1] - 7], [f[0] + 15, f[1] - 1], [f[0] + 4, f[1]]], lw, k, { closed: true, fill: far ? mixHex(P.ink, P.fill, .5) : P.ink });
+  const A1 = arm(1), L1 = leg(1), L0 = leg(0), A0 = arm(0);
+  limb(A1, 10, 8, 300, lw, true);
+  limb(L1, 15, 11, 400, lw, true); shoe(L1[2], 410, true);
+  limb(L0, 15, 11, 500, lw, false); shoe(L0[2], 510, false);
+  const kf = Math.max(L0[1][0], L1[1][0]), kb = Math.min(L0[1][0], L1[1][0]);
+  const hemY = hip[1] + (o.fem ? 62 : 34);
+  const fl = o.fem ? 10 : 0;
+  pen([[sh[0] - 15, sh[1] + 2], [sh[0] + 14, sh[1] + 2], [hip[0] + 16 + Math.sin(lean) * 4, hip[1] - 6],
+    [Math.max(hip[0] + 20 + fl, kf * 0.85 + 6), hemY - 3], [hip[0] + 2, hemY + 2], [Math.min(hip[0] - 20 - fl, kb * 0.85 - 6), hemY - 2], [hip[0] - 17, hip[1] - 8]], lw, 600, { closed: true, fill: P.fill });
+  pen([[hip[0] - 16, hip[1] - 12], [hip[0] + 15, hip[1] - 11]], lw * 0.8, 610);
+  // 머리
+  const hair = o.hair || P.ink;
+  if (o.fem) pen([[head[0] - 4, head[1] - 18], [head[0] - 16, head[1] - 8], [head[0] - 19, head[1] + 14], [head[0] - 22, head[1] + 38 - stoop * 14], [head[0] - 10, head[1] + 30 - stoop * 10], [head[0] - 4, head[1] + 8]], lw, 690, { closed: true, fill: hair });
+  ell(head[0], head[1] - 4, 12.5, 14, lw, 700, { fill: P.fill });
+  pen([[head[0] - 12, head[1] - 4], [head[0] - 9, head[1] - 16], [head[0] + 3, head[1] - 20], [head[0] + 12, head[1] - 12], [head[0] + 6, head[1] - 10], [head[0] - 4, head[1] - 9], [head[0] - 8, head[1] + 2]], lw, 720, { closed: true, fill: hair });
+  pen([[head[0] + 12, head[1] - 3], [head[0] + 15, head[1] + 1], [head[0] + 11, head[1] + 2]], lw * 0.8, 730);
+  if (o.scarf) { const sw = Math.sin(p * Math.PI * 4) * 3 + (o.wind || 0) * 14;
+    pen([[sh[0] - 11, sh[1] - 2], [sh[0] + 10, sh[1] - 1], [sh[0] + 9, sh[1] + 6], [sh[0] - 10, sh[1] + 6]], lw, 740, { closed: true, fill: o.scarf });
+    pen([[sh[0] - 9, sh[1] + 3], [sh[0] - 18 - sw, sh[1] + 12 - (o.wind || 0) * 10], [sh[0] - 26 - sw * 1.6, sh[1] + 22 - (o.wind || 0) * 20], [sh[0] - 19 - sw, sh[1] + 25 - (o.wind || 0) * 18], [sh[0] - 8, sh[1] + 9]], lw, 760, { closed: true, fill: o.scarf }); }
+  limb(A0, 10, 8, 800, lw, false);
+  const out = { hand0: A0[2], hand1: A1[2], head };
+  if (o.umbrella) { const hd = A0[2]; pen([[hd[0], hd[1] + 6], [hd[0] - 1, hd[1] - 118]], lw, 820);
+    const tp = [hd[0] - 1, hd[1] - 118];
+    pen([[tp[0] - 78, tp[1] + 30], [tp[0] - 52, tp[1] + 2], [tp[0], tp[1] - 10], [tp[0] + 52, tp[1] + 2], [tp[0] + 78, tp[1] + 30], [tp[0] + 52, tp[1] + 22], [tp[0] + 26, tp[1] + 30], [tp[0], tp[1] + 22], [tp[0] - 26, tp[1] + 30], [tp[0] - 52, tp[1] + 22]], lw, 840, { sharp: true, closed: true, fill: o.umbrella }); }
+  if (o.candle) { const hd = A0[2]; box(hd[0] - 5, hd[1] - 30, 10, 34, lw, 860, { fill: CREAM }); out.flame = [hd[0], hd[1] - 40]; }
+  ctx.restore();
+  const tr = q => [x + q[0] * s * (o.dir || 1), y + q[1] * s];
+  out.hand0 = tr(out.hand0); out.hand1 = tr(out.hand1); out.head = tr(out.head); if (out.flame) out.flame = tr(out.flame);
+  return out;
+}
+
+// ---------- 촛불 ----------
+function flame(x, y, s, t, a = 1) {
+  const fl = Math.sin(t * 13) * 0.08 + Math.sin(t * 7.3) * 0.06;
+  ctx.save(); ctx.globalAlpha = a;
+  glow(x, y - 10 * s, 320 * s, GOLD, 0.55);
+  glow(x, y - 10 * s, 90 * s, '#fff1cc', 0.7);
+  ctx.beginPath(); ctx.moveTo(x, y + 6 * s);
+  ctx.bezierCurveTo(x - 12 * s, y - 2 * s, x - 9 * s, y - 22 * s, x + fl * 40 * s, y - (40 + fl * 30) * s);
+  ctx.bezierCurveTo(x + 9 * s, y - 22 * s, x + 12 * s, y - 2 * s, x, y + 6 * s);
+  ctx.fillStyle = '#fff3d6'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = GOLD; ctx.stroke();
+  ctx.restore();
+}
+function candle(x, y, s, t, lit, k = 0) {
+  pen([[x - 26 * s, y], [x + 26 * s, y], [x + 26 * s, y - 150 * s], [x - 26 * s, y - 150 * s]], 2.4, 9000 + k, { sharp: true, closed: true, fill: P.fill });
+  pen([[x - 26 * s, y - 150 * s], [x - 10 * s, y - 144 * s], [x - 8 * s, y - 120 * s], [x - 3 * s, y - 146 * s], [x + 26 * s, y - 150 * s]], 2, 9001 + k);
+  ln(x, y - 150 * s, x + 2 * s, y - 166 * s, 2, 9002 + k);
+  pen([[x - 60 * s, y + 6], [x + 60 * s, y + 6], [x + 46 * s, y + 18], [x - 46 * s, y + 18]], 2.4, 9003 + k, { sharp: true, closed: true, fill: P.fill });
+  if (lit > 0) flame(x + 2 * s, y - 168 * s, s * (0.3 + 0.7 * easeOut(lit)), t, clamp(lit * 1.5));
+}
+
+// ---------- 서리 (화면 가장자리에서 자라는 얼음 결정) ----------
+const FROST = [];
+(() => { let id = 0;
+  function grow(x, y, a, len, depth, t0) {
+    const x2 = x + Math.cos(a) * len, y2 = y + Math.sin(a) * len; FROST.push({ x, y, x2, y2, d: depth, t0, id: id++ });
+    if (depth >= 4) return;
+    const n = 2;
+    for (let i = 0; i < n; i++) { const u = 0.35 + 0.5 * hh(id, i), bx = lerp(x, x2, u), by = lerp(y, y2, u);
+      grow(bx, by, a + (i ? 1 : -1) * (0.9 + 0.3 * hh(id, i + 3)), len * 0.45, depth + 1, t0 + u * 0.25 + 0.05); }
+    grow(x2, y2, a + (hh(id, 9) - .5) * 0.5, len * 0.7, depth + 1, t0 + 0.25);
+  }
+  for (let i = 0; i < 40; i++) { const side = i % 4, u = hh(i, 41);
+    const [x, y, a] = side === 0 ? [u * W, 0, Math.PI / 2] : side === 1 ? [W, u * H, Math.PI] : side === 2 ? [u * W, H, -Math.PI / 2] : [0, u * H, 0];
+    grow(x, y, a + (hh(i, 42) - .5) * 0.9, 60 + hh(i, 43) * 90, 0, hh(i, 44) * 0.3); }
+})();
+function frost(g, col) {
+  if (g <= 0) return;
+  ctx.lineCap = 'round';
+  for (const f of FROST) { const u = clamp((g - f.t0) / 0.3); if (u <= 0) continue;
+    ctx.beginPath(); ctx.moveTo(f.x, f.y); ctx.lineTo(lerp(f.x, f.x2, u), lerp(f.y, f.y2, u));
+    ctx.lineWidth = Math.max(0.7, 2.4 - f.d * 0.5); ctx.strokeStyle = hexA(col, 0.6 - f.d * 0.09); ctx.stroke(); }
+}
+
+// ---------- 나무 ----------
+function makeTree(seed, D, trunk) {
+  const segs = [], tips = [];
+  function br(x, y, a, len, w, d, ord) {
+    const x2 = x + Math.cos(a) * len, y2 = y + Math.sin(a) * len;
+    segs.push({ x, y, x2, y2, w, d, ord, mx: (x + x2) / 2 + Math.cos(a + 1.57) * len * 0.08 * (hh(seed + segs.length, 5) - .5), my: (y + y2) / 2 });
+    if (d >= D) { tips.push([x2, y2, d]); return; }
+    const n = d < 2 ? 2 : 2 + (hh(seed + segs.length, 1) < 0.4 ? 1 : 0);
+    for (let i = 0; i < n; i++) { const sp = (i - (n - 1) / 2) * (0.5 + 0.25 * hh(seed + segs.length, i + 2));
+      br(x2, y2, a + sp + (hh(seed + segs.length, i + 7) - .5) * 0.3, len * (0.68 + 0.14 * hh(seed + segs.length, i + 9)), w * 0.66, d + 1, ord + 1); }
+  }
+  br(0, 0, -Math.PI / 2 + (hh(seed, 1) - .5) * 0.1, trunk, trunk * 0.14, 0, 0);
+  return { segs, tips, D };
+}
+const TREE_A = makeTree(17, 6, 330);
+const TREE_B = makeTree(29, 7, 420);
+// 하트 모양 꽃자리
+const HEART = [];
+(() => { let i = 0, n = 0; while (n < 900 && i < 20000) { i++; const x = (hh(i, 501) * 2 - 1) * 1.15, y = (hh(i, 502) * 2 - 1) * 1.15;
+  const yy = -y + 0.15; const v = Math.pow(x * x + yy * yy - 1, 3) - x * x * yy * yy * yy; if (v <= 0) { HEART.push([x, y, hh(i, 503)]); n++; } } })();
+/* season: 0 봄, 1 여름, 2 가을, 3 겨울 (연속, 4 = 다시 봄) */
+function seasonW(s) { s = ((s % 4) + 4) % 4; const w = [0, 0, 0, 0]; const i = Math.floor(s), f = s - i; w[i] = 1 - sm(0.55, 1, f); w[(i + 1) % 4] += sm(0.55, 1, f); return w; }
+function tree(T, x, y, sc, g, season, t, o = {}) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(sc, sc);
+  const lw = 2.3 / sc, sw = seasonW(season);
+  for (const s of T.segs) {
+    const a0 = s.ord / (T.D + 1), u = clamp((g - a0) / (1 / (T.D + 1)));
+    if (u <= 0) continue;
+    const x2 = lerp(s.x, s.x2, u), y2 = lerp(s.y, s.y2, u), mx = lerp(s.x, s.mx, u), my = lerp(s.y, s.my, u);
+    if (s.w > 10 / sc * 0.5 && s.w * u > 6) {
+      limb([[s.x, s.y], [mx, my], [x2, y2]], s.w * (1 + 0.15 * (1 - u)), s.w * 0.7, s.ord * 31 + s.x, lw, false);
+    } else pen([[s.x, s.y], [mx, my], [x2, y2]], Math.max(lw, s.w * 0.35), s.ord * 31 + s.x);
+    if (sw[3] > 0.05 && s.d < T.D - 1 && u >= 1) pen([[lerp(s.x, s.x2, .2), lerp(s.y, s.y2, .2) - s.w * .5], [lerp(s.x, s.x2, .8), lerp(s.y, s.y2, .8) - s.w * .5]], Math.min(s.w * 0.3, 7) + 1, s.ord * 13 + 7, { col: hexA(SNOW, sw[3] * 0.75) });
+  }
+  ctx.restore();
+  // 잎·꽃
+  const fg = clamp((g - 0.75) / 0.25);
+  if (fg <= 0) return;
+  const items = o.heart ? HEART.map(h => [x + h[0] * o.heart * 1, y - o.heartY + h[1] * o.heart, h[2]]) : [];
+  if (!o.heart) T.tips.forEach((tp, i) => { for (let j = 0; j < 4; j++) items.push([x + (tp[0] + (hh(i, j + 60) - .5) * 70) * sc, y + (tp[1] + (hh(i, j + 70) - .5) * 60) * sc, hh(i * 4 + j, 80)]); });
+  items.forEach((it, i) => {
+    const [ix, iy, r] = it, bl = clamp((fg - r * 0.5) / 0.5);
+    if (bl <= 0) return;
+    const sz = (o.heart ? 7 : 8) * (0.7 + r * 0.6) * (o.big || 1);
+    if (sw[0] > 0.02) { ctx.globalAlpha = sw[0] * bl; ctx.fillStyle = r < 0.25 ? '#fbd3dc' : PINK; ctx.beginPath(); ctx.arc(ix, iy, sz * bl, 0, Math.PI * 2); ctx.fill();
+      if (r < 0.5) { ctx.fillStyle = hexA(GOLD, 1); ctx.beginPath(); ctx.arc(ix, iy, sz * 0.25, 0, Math.PI * 2); ctx.fill(); } }
+    if (sw[1] > 0.02) { ctx.globalAlpha = sw[1] * bl; ctx.fillStyle = r < 0.5 ? LEAF : '#7fa874'; ctx.beginPath(); ctx.ellipse(ix, iy, sz * 1.2, sz * 0.7, r * 6, 0, Math.PI * 2); ctx.fill(); }
+    if (sw[2] > 0.02) { const fall = clamp((sw[2] - 0.2) * 1.4) * r; ctx.globalAlpha = sw[2] * bl * (1 - fall * 0.7); ctx.fillStyle = r < 0.5 ? AUT : '#d26a3a';
+      ctx.beginPath(); ctx.ellipse(ix + Math.sin(t + i) * fall * 30, iy + fall * 260, sz * 1.1, sz * 0.7, r * 6 + t * fall, 0, Math.PI * 2); ctx.fill(); }
+    if (sw[3] > 0.02 && r < 0.35) { ctx.globalAlpha = sw[3] * bl * 0.8; ctx.fillStyle = SNOW; ctx.beginPath(); ctx.arc(ix, iy + 4, sz * 0.6, 0, Math.PI * 2); ctx.fill(); }
+  });
+  ctx.globalAlpha = 1;
+}
+
+// ---------- 벤치의 두 사람 (뒷모습) ----------
+function benchCouple(cx, gy, s, age, lean, k = 0, o = {}) {
+  ctx.save(); ctx.translate(cx, gy); ctx.scale(s, s);
+  const lw = 2.4 / s;
+  const hairM = mixHex(o.hairDark || '#1a1d26', SNOW, age), hairW = mixHex(o.hairDark || '#1a1d26', SNOW, age * 0.95);
+  // 벤치 다리
+  for (const lx of [-200, 200]) { ln(lx, -90, lx - 8, 0, lw * 1.3, k + lx); ln(lx, -90, lx + 6, -150, lw, k + lx + 1); }
+  // 남자 (왼쪽)
+  const mx = -72;
+  pen([[mx - 70, -96], [mx - 74, -170], [mx - 62, -232], [mx - 30, -250], [mx + 30, -250], [mx + 60, -232], [mx + 70, -170], [mx + 66, -96]], lw, k + 10, { closed: true, fill: P.fill });
+  ln(mx, -238, mx + 2, -110, lw * 0.6, k + 11);
+  pen([[mx - 13, -248], [mx - 12, -262], [mx + 12, -262], [mx + 13, -248]], lw, k + 12, { closed: true, fill: P.fill });
+  ell(mx, -296, 34, 38, lw, k + 13, { fill: hairM });
+  pen([[mx - 34, -290], [mx - 38, -282], [mx - 32, -276]], lw, k + 14); pen([[mx + 34, -290], [mx + 38, -282], [mx + 32, -276]], lw, k + 15);
+  for (let i = 0; i < 6; i++) pen([[mx - 22 + i * 9, -330], [mx - 24 + i * 9 + 3, -300], [mx - 22 + i * 9, -268]], lw * 0.5, k + 20 + i, { col: mixHex(P.ink, hairM, 0.4) });
+  // 여자 (오른쪽), 남자 쪽으로 기댐
+  const wx = 82, tilt = -0.32 * lean;
+  pen([[wx - 58, -96], [wx - 60, -160], [wx - 50, -214], [wx - 22, -230], [wx + 26, -230], [wx + 52, -214], [wx + 60, -160], [wx + 56, -96]], lw, k + 30, { closed: true, fill: P.fill });
+  ctx.save(); ctx.translate(wx, -236); ctx.rotate(tilt); ctx.translate(-wx, 236);
+  pen([[wx - 32, -296], [wx - 38, -250], [wx - 44, -196], [wx - 30, -176], [wx, -170], [wx + 30, -176], [wx + 44, -196], [wx + 38, -250], [wx + 32, -296]], lw, k + 31, { closed: true, fill: hairW });
+  ell(wx, -278, 31, 35, lw, k + 32, { fill: hairW });
+  for (let i = 0; i < 7; i++) pen([[wx - 24 + i * 8, -306], [wx - 28 + i * 9, -250], [wx - 30 + i * 10, -186]], lw * 0.5, k + 40 + i, { col: mixHex(P.ink, hairW, 0.4) });
+  ctx.restore();
+  // 남자 팔이 여자 어깨로
+  if (lean > 0.3) pen([[mx + 50, -228], [mx + 90, -246], [wx + 10, -238], [wx + 40, -222]], lw * 1.2, k + 50, { col: hexA(P.ink === CREAM ? '#efe6d2' : P.ink, clamp((lean - 0.3) * 3)) });
+  // 등받이·좌석 (사람 앞에 가로선이 지나가며 앉은 느낌)
+  pen([[-240, -150], [240, -150], [240, -136], [-240, -136]], lw, k + 60, { sharp: true, closed: true, fill: P.fill });
+  pen([[-240, -122], [240, -122], [240, -108], [-240, -108]], lw, k + 61, { sharp: true, closed: true, fill: P.fill });
+  pen([[-250, -96], [250, -96], [256, -84], [-256, -84]], lw, k + 62, { sharp: true, closed: true, fill: P.fill });
+  ctx.restore();
+}
+
+// ---------- 눈 ----------
+function eye(cx, cy, s, t, u, k = 0) {
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s);
+  const lw = 2.6 / s;
+  const up = [[-300, 10], [-220, -80], [-80, -140], [60, -140], [200, -90], [300, 0]], lo = [[300, 0], [200, 60], [60, 96], [-80, 96], [-220, 66], [-300, 10]];
+  pen(up, lw * 1.6, k + 1);
+  pen(lo, lw, k + 2);
+  pen([[-260, -60], [-150, -170], [20, -200], [180, -170], [270, -90]], lw * 0.8, k + 3);
+  pen([[-320, -230], [-160, -300], [40, -310], [210, -270], [320, -200]], lw * 2.4, k + 4);
+  for (let i = 0; i < 18; i++) { const u2 = (i + 0.5) / 18, p = up[Math.floor(u2 * 5)], q = up[Math.floor(u2 * 5) + 1], f = u2 * 5 % 1, x = lerp(p[0], q[0], f), y = lerp(p[1], q[1], f);
+    const a = -Math.PI / 2 + (u2 - 0.5) * 1.6; pen([[x, y], [x + Math.cos(a) * 30, y + Math.sin(a) * 34], [x + Math.cos(a - 0.4) * 52, y + Math.sin(a - 0.4) * 58]], lw * 0.9, k + 10 + i); }
+  ctx.save(); ctx.beginPath(); trace(up.concat(lo), true); ctx.clip();
+  ell(0, -20, 112, 112, lw * 1.4, k + 40, { fill: '#1d2433', n: 24 });
+  for (let i = 0; i < 48; i++) { const a = i / 48 * Math.PI * 2; pen([[Math.cos(a) * 46, -20 + Math.sin(a) * 46], [Math.cos(a + 0.08) * 80, -20 + Math.sin(a + 0.08) * 80], [Math.cos(a) * 108, -20 + Math.sin(a) * 108]], lw * 0.5, k + 50 + i, { col: hexA(CREAM, 0.55) }); }
+  ell(0, -20, 44, 44, lw, k + 120, { fill: '#05070b', n: 18 });
+  ctx.fillStyle = hexA('#ffffff', 0.85); ctx.beginPath(); ctx.ellipse(36, -58, 16, 11, -0.5, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  ctx.restore();
+}
+
+// ---------- 글자 → 점 ----------
+function textPoints(str, size, step) {
+  const c = mk(1080, 700), x = c.getContext('2d');
+  x.font = `400 ${size}px "Nanum Brush Script", cursive`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = '#fff';
+  x.fillText(str, 540, 350);
+  const d = x.getImageData(0, 0, 1080, 700).data, pts = [];
+  for (let y = 0; y < 700; y += step) for (let xx = 0; xx < 1080; xx += step) if (d[(y * 1080 + xx) * 4 + 3] > 128) pts.push([xx - 540, y - 350]);
+  return pts;
+}
+let NAMEPTS = null, STARS = null;
+function namePrep() {
+  if (NAMEPTS) return;
+  const all = textPoints('현심', 520, 7);
+  // 고르게 섞어 고른다
+  NAMEPTS = all.map((p, i) => [p[0], p[1], hh(i, 333)]).sort((a, b) => a[2] - b[2]).slice(0, 900);
+  const cand = textPoints('현심', 520, 26);
+  // 별자리용 핵심점: 가장 먼 점 고르기
+  STARS = [cand[0]];
+  while (STARS.length < 34) { let best = null, bd = -1; for (const p of cand) { let d = 1e9; for (const s of STARS) d = Math.min(d, Math.hypot(p[0] - s[0], p[1] - s[1])); if (d > bd) { bd = d; best = p; } } STARS.push(best); }
+}
+function brushText(str, x, y, size, u, col, o = {}) {
+  if (u <= 0) return;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(o.rot || 0);
+  ctx.font = `400 ${size}px "Nanum Brush Script", cursive`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const w = ctx.measureText(str).width, lo = -w / 2 - size * 0.4, hi = w / 2 + size * 0.4, th = lerp(lo, hi, u);
+  ctx.beginPath(); ctx.moveTo(-4000, -size * 2); ctx.lineTo(th + size * 0.4, -size * 2); ctx.lineTo(th - size * 0.4, size * 2); ctx.lineTo(-4000, size * 2); ctx.closePath(); ctx.clip();
+  if (o.glow) { ctx.shadowColor = o.glow; ctx.shadowBlur = o.blur || 40; }
+  ctx.fillStyle = col; ctx.fillText(str, 0, 0);
+  if (o.glow) { ctx.shadowBlur = (o.blur || 40) * 0.4; ctx.fillText(str, 0, 0); }
+  ctx.restore();
+  return { front: th + x, w };
+}
+
+// ---------- 가사 ----------
+const LYRICS = [ // [시작, 가사, 끝] — 보컬 분리 + 음성인식으로 측정
+  [1.8, '예, 듣고 있니? 시간이 참 빨라', 7.2], [7.3, '기억나? 그 처음 봤던 그날', 9.95],
+  [10.0, '모든 게 얼어붙었던 그 겨울에', 14.4], [14.45, '난 어두웠어, 그리고 빛바랬어', 17.5],
+  [17.55, '짧지만 힘들었고, 그게 인생이었어', 20.5], [20.55, '어두운 인생에 난 너를 만났어', 23.2],
+  [23.25, '그것은 운명, 그것은 인생', 26.1], [26.15, '너는 촛불, 넌 나를 믿었지', 29.1],
+  [29.15, '운명이란 건 정해지면 따른다는 걸', 32.1], [32.15, '내 입으로 말할게', 33.3], [33.35, '현심, 이것은 너의 이름', 35.0],
+  [35.05, '내가 본 가장 아름다운 그 모습', 37.8], [37.85, '꽃은 졌지만 너는 변하지 않아', 40.7],
+  [40.8, '그렇게 시간이 흐르고, 세월이 흘러', 43.9], [43.95, '하얀 눈이 머리에 내려', 45.85],
+  [45.9, '변하지 않는 너의 그 눈동자 속에서', 49.4], [49.45, '우리는 여전히 그날의 봄을 기억해', 52.5],
+  [52.55, '그렇게 시간이 흐르고, 세월이 흘러', 55.55], [55.6, '하얀 눈이 머리에 내려', 59.0],
+  [61.25, '오늘도 난 널 보았어', 64.2], [64.25, '처음 봤던, 첫눈에 반한 그 모습', 67.0],
+  [67.05, '환하게 웃던 그날의 너와 똑같아', 71.0], [71.25, '이해는 하지만, 내가 아는 너는 변하지 않아', 75.4],
+  [75.45, '현심, 그 이름, 그 존재', 78.3], [78.35, '아무튼 세상은 아름답고 재밌는 거야', 81.7],
+  [81.8, '너의 시간이 흘러도', 84.9], [85.0, '하얀 눈이 머리에 내려', 87.65],
+  [87.7, '그렇게 시간이 흐르고, 세월이 흘러', 90.7], [90.75, '하얀 눈이 머리에 내려', 93.75],
+  [93.8, '변하지 않는 너의 그 눈동자 속에서', 96.25], [96.3, '우리는 여전히 그날의 봄을 기억해', 99.45],
+  [99.5, '그렇게 시간이 흐르고, 세월이 흘러', 102.4], [102.45, '하얀 눈이 머리에 내려', 105.5],
+  [105.55, '기억하니? 우리 약속했잖아', 107.3], [107.35, '바람이 불어와도 손을 놓지 않겠다고', 110.5],
+  [110.55, '어두웠던 밤은 지나고', 112.75], [112.8, '저 먼 곳에서 빛이 보여', 114.35], [114.4, '넌 내 가장 아름다운 기준점', 117.1],
+  [117.15, '그렇게 시간이 흐르고, 세월이 흘러', 120.65], [120.7, '하얀 눈이 머리에 내려', 122.5],
+  [122.55, '그렇게 시간이 흐르고, 세월이 흘러', 125.85], [125.9, '하얀 눈이 머리에', 127.85],
+  [127.9, '변하지 않는 너의 그 눈동자 속에서', 131.35], [131.4, '우리는 여전히 그날의 봄을 기억해', 134.5],
+  [134.55, '그렇게 시간이 흐르고, 세월이 흘러', 137.55], [137.6, '하얀 눈이 머리에 내려', 140.6],
+  [141.5, '세월이 흘러도 넌 변하지 않아', 144.4], [144.45, '나의 촛불, 현심, 그 이름', 147.85],
+  [147.9, '고마워, 내 곁에 있어줘서', 150.55], [150.6, '정말로 세상은 여전히 아름답고 재미있어', 154.6],
+];
+function lyric(t) {
+  for (const [t0, s, t1] of LYRICS) {
+    const a = sm(t0 - 0.15, t0 + 0.3, t) * (1 - sm(t1 - 0.3, t1 + 0.05, t)); if (a <= 0) continue;
+    X.setTransform(1, 0, 0, 1, 0, 0); X.globalAlpha = a;
+    let size = 54; X.font = `700 ${size}px "Gowun Batang", serif`;
+    while (X.measureText(s).width > W - 120 && size > 34) { size -= 2; X.font = `700 ${size}px "Gowun Batang", serif`; }
+    X.textAlign = 'center'; X.textBaseline = 'alphabetic';
+    X.lineWidth = 10; X.strokeStyle = 'rgba(8,10,16,0.78)'; X.lineJoin = 'round';
+    const y = 1480 + (1 - sm(t0 - 0.15, t0 + 0.4, t)) * 10;
+    X.strokeText(s, W / 2, y);
+    X.fillStyle = s.includes('현심') ? '#ffe2a8' : '#f6efe0'; X.fillText(s, W / 2, y);
+    X.globalAlpha = 1;
+  }
+}
+
+// =====================================================================
+// 장면
+// =====================================================================
+// 1) 얼어붙은 겨울 → 만남 → 촛불 (0 - 33.6)
+const MEET_X = 540;
+function sWinter(t) {
+  P.bg = NIGHT; P.ink = CREAM; P.fill = NIGHT; J = 0.9;
+  bg(NIGHT);
+  const warm = sm(26.2, 30.5, t);
+  // 화면 아래쪽 차가운 빛 / 촛불의 따뜻한 빛
+  const push = easeIO(sm(29.4, 33.6, t)), z = 1.22 + push * 5.3;
+  const fxc = MEET_X, fyc = 1105;
+  ctx.setTransform(z, 0, 0, z, W / 2 - lerp(W / 2, fxc, push) * z, H / 2 - lerp(H / 2 + 120, fyc, push) * z);
+  const dark = sm(10, 17, t) * (1 - warm);
+  const inkA = 1 - 0.45 * dark;
+  P.ink = mixHex(CREAM, '#5d6475', dark * 0.8);
+  // 하늘의 달
+  ctx.globalAlpha = 0.9 - dark * 0.5; ell(820, 300, 60, 60, 2, 10, { col: P.ink, fill: NIGHT }); ctx.globalAlpha = 1;
+  // 건물 (그려지며 등장)
+  reveal('win-city', sm(0.5, 9.5, t), () => {
+    const bs = [[-40, 520, 260], [210, 680, 200], [400, 440, 230], [620, 760, 190], [800, 560, 300]];
+    bs.forEach(([x, h, w], i) => { box(x, 1260 - h, w, h, 2.4, 100 + i * 10, { fill: NIGHT });
+      for (let r = 0; r < Math.floor(h / 120); r++) for (let c = 0; c < Math.floor(w / 80); c++) box(x + 24 + c * 80, 1260 - h + 40 + r * 120, 40, 60, 1.6, 200 + i * 100 + r * 10 + c, { fill: (hh(i * 50 + r * 7 + c, 4) < 0.18) ? hexA(GOLD, 0.25 * (1 - dark)) : NIGHT }); });
+    ln(-100, 1260, 1180, 1262, 2.8, 400);
+    // 가로등
+    ln(180, 1262, 182, 760, 3, 410); pen([[182, 760], [210, 735], [262, 740]], 2.6, 411); pen([[240, 738], [284, 738], [276, 756], [248, 756]], 2.2, 412, { closed: true, sharp: true, fill: NIGHT });
+    // 앙상한 나무
+  });
+  tree(TREE_A, 930, 1262, 0.75, sm(2.5, 10, t), 3.0, t);
+  ctx.globalAlpha = 0.35 * (1 - dark); glow(262, 760, 260, '#cfe0ff', 0.4); ctx.globalAlpha = 1;
+  // 남자: 왼쪽에서 걸어와 멈춘다
+  const walkEnd = 22.6, vx = 92;
+  const mxp = MEET_X - 120 - Math.max(0, walkEnd - t) * vx;
+  const mphase = (mxp + 3000) / (SW * 1.5);
+  if (t > 3) person(mxp, 1262, { phase: mphase, scale: 1.5, stand: sm(walkEnd - 0.3, walkEnd + 0.4, t), hair: '#1a1d26', scarf: mixHex('#59606f', '#c9584a', warm), stoop: 0.25 * dark });
+  // 여자: 오른쪽에서 걸어와 마주 선다
+  if (t > 18) { const wxp = MEET_X + 120 + Math.max(0, walkEnd - t) * vx;
+    person(wxp, 1262, { phase: (3000 - wxp) / (SW * 1.45), scale: 1.45, dir: -1, fem: true, hair: '#1a1d26', stand: sm(walkEnd - 0.3, walkEnd + 0.4, t), candle: t > 24.5 ? 1 : 0 }); }
+  // 촛불: 그녀가 든 초에 불이 붙는다
+  if (t > 24.5) { const fx = MEET_X + 120 - 1.45 * 0, lit = sm(26.15, 26.9, t);
+    const hx = MEET_X + 120 - (Math.cos(Math.PI / 2 - 0.35) * 36 + Math.cos(Math.PI / 2 - 0.35 - 1.45) * 34) * 1.45, hy = 1262 - (99 - Math.cos(0.04) * 72) * 1.45 + 0;
+    void fx; void hx; void hy;
+  }
+  // 성냥불처럼 번지는 따뜻함
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  // 서리: 화면 가장자리에서 자라고, 촛불에 녹는다
+  frost(sm(10, 20, t) * (1 - sm(26.6, 31, t)), '#cfe2ff');
+  snow(t, Math.round(120 + 260 * sm(9, 16, t) * (1 - warm * 0.7)), { speed: 70 + 40 * dark, wind: 30, alpha: 0.85 });
+}
+// 촛불 위치는 여자 손에서 가져온다 (person 반환값)
+let FLAME = [MEET_X + 70, 1080];
+function sWinterFlame(t) {
+  if (t < 24.5) return;
+  const push = easeIO(sm(29.4, 33.6, t)), z = 1.22 + push * 5.3;
+  const fxc = MEET_X, fyc = 1105;
+  ctx.setTransform(z, 0, 0, z, W / 2 - lerp(W / 2, fxc, push) * z, H / 2 - lerp(H / 2 + 120, fyc, push) * z);
+  const walkEnd = 22.6;
+  // 여자 손 위치를 다시 계산
+  const sv = ctx; ctx = DUMMY; const r = person(MEET_X + 120, 1262, { scale: 1.45, dir: -1, fem: true, stand: 1, candle: 1 }); ctx = sv;
+  FLAME = r.flame; void walkEnd;
+  const lit = sm(26.15, 26.9, t);
+  if (lit > 0) { ctx.globalCompositeOperation = 'lighter'; flame(r.flame[0], r.flame[1] + 6, 0.5, t, lit); ctx.globalCompositeOperation = 'source-over'; }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const warm = sm(26.2, 30.5, t) * (1 - sm(32.2, 33.6, t));
+  if (warm > 0) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = warm * 0.35; glow(W / 2, H * 0.58, 1100, GOLD, 0.35); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; }
+  // 화면이 불꽃 속으로 들어가 하얗게 → 금빛
+  const wh = sm(32.4, 33.6, t);
+  if (wh > 0) { ctx.fillStyle = hexA('#2a1a08', wh); ctx.fillRect(0, 0, W, H); }
+}
+
+// 2) 불꽃이 이름을 쓴다 (33.2 - 41)
+function sName1(t) {
+  bg('#120d08');
+  const u = sm(33.55, 35.4, t);
+  namePrep();
+  ctx.globalCompositeOperation = 'lighter';
+  glow(W / 2, 860, 900, GOLD, 0.18 + 0.12 * u);
+  ctx.globalCompositeOperation = 'source-over';
+  const dis = sm(37.9, 40.6, t);
+  // 글씨
+  ctx.globalAlpha = 1 - dis;
+  const r = brushText('현심', W / 2, 860, 520, u, '#ffe0a0', { glow: GOLD, blur: 60, rot: -0.04 });
+  ctx.globalAlpha = 1;
+  // 붓 끝의 불꽃
+  if (u > 0 && u < 1 && r) { ctx.globalCompositeOperation = 'lighter'; flame(r.front - 40, 860 + Math.sin(t * 9) * 80, 0.55, t, 1); ctx.globalCompositeOperation = 'source-over'; }
+  // 불티
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 140; i++) { const st = 33.6 + hh(i, 1) * 3.5; if (t < st) continue; const age = t - st, life = 2.5 + hh(i, 2) * 2;
+    if (age > life) continue; const x = W / 2 + (hh(i, 3) - .5) * 900 + Math.sin(age * 2 + i) * 30, y = 860 + (hh(i, 4) - .5) * 400 - age * (60 + hh(i, 5) * 120);
+    ctx.globalAlpha = (1 - age / life) * 0.9; ctx.fillStyle = hh(i, 6) < 0.5 ? GOLD : '#fff0c8'; ctx.beginPath(); ctx.arc(x, y, 1.5 + hh(i, 7) * 3, 0, Math.PI * 2); ctx.fill(); }
+  // 글자가 별가루로 흩어져 올라간다
+  if (dis > 0) for (let i = 0; i < NAMEPTS.length; i += 2) { const p = NAMEPTS[i], d = clamp((dis - p[2] * 0.4) / 0.6);
+    if (d <= 0) continue; const x = W / 2 + p[0] + Math.sin(i + t) * 40 * d, y = 860 + p[1] - d * d * (900 + p[2] * 600);
+    ctx.globalAlpha = (1 - d) * 0.9 + 0.1 * (1 - d); ctx.fillStyle = '#ffe2a8'; ctx.fillRect(x, y, 3, 3); }
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+}
+
+// 3) 벤치 (후렴 1): 봄 나무 아래 두 사람, 눈이 내리고 머리가 하얘진다
+function sBench(t, age, seasonV, o = {}) {
+  P.bg = NIGHT; P.ink = CREAM; P.fill = NIGHT; J = 0.9;
+  bg(mixHex(NIGHT, '#1b2233', 0.6));
+  const z = o.z || 1, cx = o.cx || W / 2, cy = o.cy || H / 2;
+  ctx.setTransform(z, 0, 0, z, W / 2 - cx * z, H / 2 - cy * z);
+  ctx.globalAlpha = 0.6; glow(820, 380, 300, '#cfe0ff', 0.12); ctx.globalAlpha = 1;
+  ell(820, 380, 54, 54, 2, 31, { fill: NIGHT });
+  ln(-200, 1300, 1300, 1302, 2.8, 32);
+  for (let i = 0; i < 10; i++) ln(-100 + i * 140, 1330 + (i % 3) * 30, -40 + i * 140, 1330 + (i % 3) * 30, 1.4, 33 + i, DIM);
+  tree(TREE_B, 300, 1300, 0.95, o.grow == null ? 1 : o.grow, seasonV, t);
+  // 가로등
+  ln(900, 1300, 902, 820, 3, 34); pen([[902, 820], [870, 795], [830, 800]], 2.4, 35); pen([[810, 798], [852, 798], [846, 816], [818, 816]], 2, 36, { sharp: true, closed: true, fill: NIGHT });
+  ctx.globalAlpha = 0.5; glow(832, 830, 300, GOLD, 0.35); ctx.globalAlpha = 1;
+  benchCouple(560, 1300, 1.0, age, o.lean == null ? 0.8 : o.lean, 1000);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const sw = seasonW(seasonV);
+  if (sw[0] > 0.05) petals(t, Math.round(60 * sw[0]), PINK, { alpha: sw[0] });
+  if (o.snow) snow(t, o.snow, { speed: 70, wind: 20 });
+}
+function sChorus1(t) {
+  const age = 0.12 + 0.5 * sm(43.9, 46, t);
+  const season = lerp(0, 3.0, sm(41.5, 45.5, t));
+  sBench(t, age, season, { snow: Math.round(260 * sm(43.8, 45, t)), z: lerp(1.25, 1.0, easeIO(sm(40.8, 44, t))), cx: 560, cy: lerp(1040, 960, sm(40.8, 44, t)) });
+}
+// 4) 눈동자 속 그날의 봄
+function sEye(t) {
+  P.bg = NIGHT; P.ink = CREAM; P.fill = NIGHT; J = 0.9;
+  bg('#0e121b');
+  const zin = easeIO(sm(48.6, 50.2, t)), s = 1.3 * Math.pow(18, zin);
+  const ex = W / 2, ey = 900;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  reveal('eye', sm(45.9, 47.8, t), () => eye(ex, ey + 20 * s, s, t, 1));
+  // 눈동자 속: 봄 - 처음 만난 날
+  const inner = sm(49.0, 50.0, t);
+  if (inner > 0) {
+    ctx.save();
+    const r = 44 * s * 1.05;
+    ctx.beginPath(); ctx.arc(ex, ey + 20 * s - 20 * s, Math.max(r, inner * 2400), 0, Math.PI * 2); ctx.clip();
+    ctx.globalAlpha = inner;
+    bg('#1a1420');
+    ctx.globalCompositeOperation = 'lighter'; glow(W / 2, 700, 1100, PINK, 0.18); ctx.globalCompositeOperation = 'source-over';
+    // 꽃가지 아치
+    P.ink = CREAM; P.fill = '#1a1420';
+    tree(TREE_A, 120, 1300, 1.05, 1, 0.0, t, { big: 1.3 });
+    const yb = 1300;
+    ln(-100, yb, 1200, yb + 2, 2.6, 2000);
+    const sp = sm(49.4, 52.4, t);
+    person(400 + sp * 40, yb, { phase: 0.2, stand: 1, scale: 1.7, hair: '#1a1d26', scarf: '#c9584a' });
+    person(700 - sp * 40, yb, { phase: 0.7, stand: 1, scale: 1.62, dir: -1, fem: true, hair: '#1a1d26' });
+    ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = inner * 0.8 * win(t, 50.6, 52.6); glow(550, 980, 140, PINK, 0.6); ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = inner;
+    petals(t, 120, PINK, { speed: 70, wind: 40 });
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
+}
+function sChorus1b(t) {
+  const age = 0.55 + 0.3 * sm(52.6, 58, t);
+  sBench(t, age, 3.0, { snow: Math.round(380 - 250 * sm(58.6, 61.2, t)), z: lerp(1.6, 1.0, easeIO(sm(52.6, 56, t))), cx: 560, cy: lerp(1000, 960, sm(52.6, 56, t)), lean: 1 });
+}
+
+// 5) 스케치북 (2절): 세 칸이 차례로 그려진다
+function sSketch(t) {
+  P.bg = PAPER; P.ink = SEPIA; P.fill = PAPER; J = 0.8;
+  bg(PAPER);
+  // 종이 결
+  ctx.globalAlpha = 0.05; for (let i = 0; i < 40; i++) { ctx.fillStyle = '#7a5a30'; ctx.fillRect(0, hh(i, 8) * H, W, 1); } ctx.globalAlpha = 1;
+  const panels = [[70, 140, 940, 420], [70, 600, 940, 420], [70, 1060, 940, 300]];
+  // 1칸: 오늘도 난 널 보았어 — 창가에서 화분에 물 주는 그녀
+  reveal('sk1', sm(61.2, 64.0, t), () => {
+    const [x, y, w, h] = panels[0]; box(x, y, w, h, 3, 3000);
+    box(x + 560, y + 40, 300, 260, 2.4, 3001, { fill: '#f7efe0' }); ln(x + 710, y + 42, x + 710, y + 298, 2, 3002); ln(x + 562, y + 170, x + 858, y + 170, 2, 3003);
+    ln(x + 540, y + 302, x + 880, y + 302, 3, 3004);
+    pen([[x + 610, y + 300], [x + 680, y + 300], [x + 670, y + 250], [x + 620, y + 250]], 2.2, 3005, { closed: true, sharp: true, fill: '#d98c6a' });
+    for (let i = 0; i < 6; i++) { const a = -2.6 + i * 0.36; pen([[x + 645, y + 250], [x + 645 + Math.cos(a) * 40, y + 250 + Math.sin(a) * 60], [x + 645 + Math.cos(a) * 64, y + 250 + Math.sin(a) * 96]], 2, 3010 + i); }
+    const r = person(x + 470, y + 392, { stand: 1, scale: 1.25, fem: true, hair: '#2a2420', phase: 0.2, candle: 0 });
+    void r;
+    ln(x + 40, y + 394, x + 900, y + 394, 2.4, 3020);
+    // 그를 바라보는 남자 (왼쪽)
+    person(x + 180, y + 392, { stand: 1, scale: 1.25, hair: '#2a2420', phase: 0.6 });
+    pen([[x + 250, y + 150], [x + 300, y + 120], [x + 340, y + 140]], 2, 3030); // 시선
+  });
+  // 2칸: 처음 봤던, 첫눈에 반한 그 모습 / 환하게 웃던
+  reveal('sk2', sm(64.2, 68.6, t), () => {
+    const [x, y, w, h] = panels[1]; box(x, y, w, h, 3, 3100);
+    // 커다란 얼굴 옆선 대신: 하트로 이어진 두 컵과 김
+    pen([[x + 260, y + 300], [x + 420, y + 300], [x + 410, y + 380], [x + 270, y + 380]], 2.6, 3101, { sharp: true, closed: true, fill: '#fbf5ea' });
+    pen([[x + 420, y + 320], [x + 460, y + 320], [x + 455, y + 355], [x + 416, y + 360]], 2.4, 3102);
+    pen([[x + 520, y + 300], [x + 680, y + 300], [x + 670, y + 380], [x + 530, y + 380]], 2.6, 3103, { sharp: true, closed: true, fill: '#fbf5ea' });
+    pen([[x + 520, y + 320], [x + 480, y + 320], [x + 485, y + 355], [x + 524, y + 360]], 2.4, 3104);
+    ln(x + 180, y + 384, x + 760, y + 384, 3, 3105);
+    // 두 김이 올라가 하트가 된다
+    const hp = []; for (let i = 0; i <= 40; i++) { const a = i / 40 * Math.PI * 2; hp.push([x + 470 + 16 * Math.pow(Math.sin(a), 3) * 9, y + 150 - (13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a)) * 9]); }
+    pen([[x + 340, y + 290], [x + 320, y + 240], [x + 360, y + 200], hp[30]], 2.4, 3110, { col: '#b5523b' });
+    pen([[x + 600, y + 290], [x + 620, y + 240], [x + 580, y + 200], hp[10]], 2.4, 3111, { col: '#b5523b' });
+    pen(hp, 3, 3112, { col: '#b5523b' });
+  });
+  // 3칸: 변하지 않아 — 우산 하나에 두 노인
+  reveal('sk3', sm(71.0, 74.6, t), () => {
+    const [x, y, w, h] = panels[2]; box(x, y, w, h, 3, 3200);
+    ln(x + 20, y + 270, x + w - 20, y + 270, 2.4, 3201);
+    for (let i = 0; i < 26; i++) { const rx = x + 40 + hh(i, 9) * (w - 80), ry = y + 20 + hh(i, 10) * 200; ln(rx, ry, rx - 8, ry + 26, 1.4, 3210 + i, '#7d8495'); }
+    person(x + 430, y + 270, { stand: 1, scale: 1.05, hair: '#d8d2c4', stoop: 0.7, phase: 0.2, umbrella: '#c9584a' });
+    person(x + 500, y + 270, { stand: 1, scale: 1.0, hair: '#d8d2c4', fem: true, stoop: 0.7, phase: 0.6 });
+  });
+  // 페이지 넘김 효과: 손그림 연필 자국
+  const lineA = sm(61.2, 62, t);
+  ctx.globalAlpha = 0.5 * lineA; ctx.font = '400 54px "Nanum Brush Script", cursive'; ctx.fillStyle = SEPIA; ctx.textAlign = 'right';
+  ctx.fillText('우리의 하루', 1000, 105); ctx.globalAlpha = 1;
+}
+
+// 6) 별자리 이름 → 꽃이 피는 세상 (75.2 - 82)
+function sStars(t) {
+  bg('#0b0e17');
+  namePrep();
+  const cx = W / 2, cy = 760;
+  const conv = sm(75.3, 77.6, t), burst = sm(78.3, 79.6, t);
+  // 배경 별
+  for (let i = 0; i < 220; i++) { const x = hh(i, 1) * W, y = hh(i, 2) * H, tw = 0.5 + 0.5 * Math.sin(t * 2 + i);
+    ctx.globalAlpha = 0.25 + 0.4 * tw; ctx.fillStyle = CREAM; ctx.fillRect(x, y, 2, 2); }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'lighter';
+  // 눈송이가 모여 글자가 된다
+  for (let i = 0; i < NAMEPTS.length; i++) { const p = NAMEPTS[i];
+    const sx = hh(i, 21) * W, sy = ((hh(i, 22) * H + t * 50) % H);
+    const c = easeIO(clamp((conv - p[2] * 0.35) / 0.65));
+    let x = lerp(sx, cx + p[0], c), y = lerp(sy, cy + p[1], c);
+    if (burst > 0) { const a = hh(i, 23) * Math.PI * 2, d = easeOut(burst) * (300 + hh(i, 24) * 900); x += Math.cos(a) * d; y += Math.sin(a) * d * 1.2; }
+    ctx.globalAlpha = (0.5 + 0.5 * c) * (1 - burst * 0.85);
+    ctx.fillStyle = c > 0.9 ? '#ffe2a8' : SNOW; ctx.beginPath(); ctx.arc(x, y, 2.2 + c, 0, Math.PI * 2); ctx.fill(); }
+  // 별자리 선
+  const ls = sm(76.6, 77.8, t) * (1 - burst);
+  if (ls > 0) { ctx.strokeStyle = hexA(GOLD, 0.7 * ls); ctx.lineWidth = 2;
+    const order = STARS.slice(); ctx.beginPath();
+    for (let i = 1; i < order.length; i++) { const a = order[i - 1], b = order[i]; if (Math.hypot(a[0] - b[0], a[1] - b[1]) > 260) continue;
+      const f = clamp(ls * order.length - i); if (f <= 0) continue; ctx.moveTo(cx + a[0], cy + a[1]); ctx.lineTo(cx + lerp(a[0], b[0], f), cy + lerp(a[1], b[1], f)); }
+    ctx.stroke();
+    for (const s of STARS) { glow(cx + s[0], cy + s[1], 26, GOLD, 0.8 * ls); } }
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  // 세상은 아름답고 재밌는 거야: 선으로 된 꽃이 사방에서 핀다
+  if (t > 78.3) { P.ink = CREAM;
+    for (let i = 0; i < 46; i++) { const st = 78.4 + hh(i, 31) * 2.8, b = clamp((t - st) / 0.7); if (b <= 0) continue;
+      const x = 80 + hh(i, 32) * (W - 160), y = 160 + hh(i, 33) * 1500, cols = [PINK, GOLD, CREAM, '#a9d4c8'];
+      ctx.save(); ctx.translate(x, y); ctx.rotate(Math.sin(t * 0.8 + i) * 0.15); flower(0, 0, 30 + hh(i, 34) * 50, 5 + (i % 3), cols[i % 4], hh(i, 35) * 6, 2.4, 5000 + i * 20, b); ctx.restore(); } }
+}
+
+// 7) 자라는 나무 (후렴 2): 묘목 → 큰 나무, 계절이 돈다
+function sTreeLapse(t) {
+  P.bg = NIGHT; P.ink = CREAM; P.fill = NIGHT; J = 0.8;
+  const u = sm(81.8, 104.5, t);
+  // 가사에 맞춘 계절: "봄을 기억해"(96.3)에 꽃이 터지고, "하얀 눈"마다 겨울
+  const SK = [[81.8, 2.6], [85.0, 3.0], [87.7, 4.0], [90.8, 5.0], [92.6, 6.0], [94.4, 7.0], [96.2, 7.0], [97.0, 8.0], [99.5, 9.0], [101.2, 10.0], [102.6, 11.0], [106, 11.0]];
+  let season = SK[0][1]; for (let i = 0; i < SK.length - 1; i++) if (t >= SK[i][0]) season = lerp(SK[i][1], SK[i + 1][1], sm(SK[i][0], SK[i + 1][0], t));
+  const sw = seasonW(season);
+  bg(mixHex(mixHex('#141a28', '#1d2433', sw[1]), '#221a26', sw[0] * 0.6));
+  const z = lerp(1.3, 0.95, easeIO(u));
+  ctx.setTransform(z, 0, 0, z, W / 2 - 540 * z, H / 2 - lerp(1050, 880, easeIO(u)) * z);
+  ln(-400, 1300, 1500, 1302, 2.8, 41);
+  // 해와 달이 지나간다
+  for (let i = 0; i < 8; i++) { const a = (t * 0.6 + i * 0.785) % (Math.PI * 2); ctx.globalAlpha = 0.25; ell(540 + Math.cos(a) * 700, 900 + Math.sin(a) * 600, 24, 24, 1.6, 42 + i, { fill: i % 2 ? NIGHT : hexA(GOLD, 0.5) }); }
+  ctx.globalAlpha = 1;
+  tree(TREE_B, 420, 1300, lerp(0.2, 0.9, easeOut(u)), lerp(0.25, 1, sm(81.8, 92, t)), season, t);
+  benchCouple(640, 1300, 0.95, lerp(0.3, 0.92, u), 1, 1200);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (sw[0] > 0.05) petals(t, Math.round(110 * sw[0]), PINK, { alpha: sw[0] });
+  if (sw[3] > 0.05) snow(t, Math.round(300 * sw[3]), { speed: 80 });
+  if (sw[2] > 0.1) petals(t * 0.8 + 30, Math.round(50 * sw[2]), AUT, { alpha: sw[2], speed: 120, wind: 90 });
+}
+
+// 8) 바람 속에서 손을 놓지 않는 두 사람 → 새벽 → 기준점 (105.5 - 117.5)
+function sWind(t) {
+  P.bg = NIGHT; P.ink = CREAM; P.fill = NIGHT; J = 1.0;
+  const dawn = sm(110.5, 114.2, t);
+  bg(mixHex('#0f131d', '#2b2433', dawn));
+  const zw = 1.25; ctx.setTransform(zw, 0, 0, zw, W / 2 - 560 * zw, H / 2 - 1060 * zw);
+  // 새벽 하늘 띠
+  if (dawn > 0) { const g = ctx.createLinearGradient(0, 700, 0, 1300); g.addColorStop(0, hexA('#2b2433', 0)); g.addColorStop(1, hexA('#f0a070', 0.55 * dawn)); ctx.fillStyle = g; ctx.fillRect(-300, 700, W + 600, 600); }
+  const gy = 1300;
+  // 해: 지평선 너머에서 떠오른다
+  const sunY = lerp(gy + 120, gy - 150, easeOut(sm(112.6, 116, t)));
+  ctx.save(); ctx.beginPath(); ctx.rect(-300, -300, W + 600, gy + 300); ctx.clip();
+  ctx.globalCompositeOperation = 'lighter'; glow(820, sunY, 700 * (0.3 + dawn), GOLD, 0.5 * dawn); ctx.globalCompositeOperation = 'source-over';
+  ell(820, sunY, 90, 90, 3, 61, { fill: hexA(GOLD, 0.9 * dawn), col: GOLD });
+  ctx.restore();
+  // 기준점: 해 위로 그려지는 나침반 별
+  const cp = sm(114.4, 116.4, t);
+  if (cp > 0) { ctx.save(); ctx.translate(820, sunY); ctx.rotate(t * 0.05);
+    for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2, L = (i % 2 ? 170 : 330) * easeOut(cp);
+      pen([[Math.cos(a - 0.12) * 100, Math.sin(a - 0.12) * 100], [Math.cos(a) * L, Math.sin(a) * L], [Math.cos(a + 0.12) * 100, Math.sin(a + 0.12) * 100]], 2.4, 70 + i, { col: GOLD }); }
+    ell(0, 0, 150 * easeOut(cp), 150 * easeOut(cp), 1.6, 80, { col: hexA(GOLD, 0.7) });
+    ctx.restore(); }
+  ln(-100, gy, 1200, gy + 2, 2.8, 62);
+  // 길
+  pen([[300, gy], [520, gy + 160], [700, gy + 400]], 2, 63, { col: DIM }); pen([[900, gy], [960, gy + 160], [1020, gy + 400]], 2, 64, { col: DIM });
+  // 두 노인이 손을 잡고 바람을 거슬러 걷는다 (화면 왼쪽 → 오른쪽)
+  const wind = 1 - dawn * 0.8, walk = (t - 105.5) * 30;
+  const x0 = 200 + walk;
+  const A = person(x0 - 46, gy, { phase: walk / (SW * 1.5 * 0.75), scale: 1.5, hair: SNOW, stoop: 0.55 + 0.2 * wind, scarf: '#c9584a', wind, hold: 1 });
+  const B = person(x0 + 46, gy, { phase: walk / (SW * 1.42 * 0.75) + 0.5, scale: 1.42, hair: SNOW, fem: true, stoop: 0.5 + 0.2 * wind, wind, hold: -1 });
+  // 맞잡은 손
+  const hx = (A.hand0[0] + B.hand1[0]) / 2, hy2 = (A.hand0[1] + B.hand1[1]) / 2;
+  pen([A.hand0, [hx, hy2 + 4], B.hand1], 3, 90);
+  ell(hx, hy2 + 2, 10, 8, 2.4, 91, { fill: NIGHT });
+  ctx.globalCompositeOperation = 'lighter'; glow(hx, hy2, 80 + 40 * Math.sin(t * 3), GOLD, 0.35 + 0.3 * sm(107.3, 108.4, t)); ctx.globalCompositeOperation = 'source-over';
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  // 바람 줄기
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 70 * wind; i++) { const y = hh(i, 1) * 1400 + 100, v = 900 + hh(i, 2) * 900, L = 80 + hh(i, 3) * 220;
+    const x = W + 300 - ((t * v + hh(i, 4) * 3000) % (W + 700));
+    ctx.strokeStyle = hexA(CREAM, 0.25 + 0.3 * hh(i, 5)); ctx.lineWidth = 1.2 + hh(i, 6) * 1.6;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo(x + L / 2, y - 10 * Math.sin(i + t * 3), x + L, y); ctx.stroke(); }
+  snow(t, Math.round(260 * wind), { speed: 120, wind: -520 });
+}
+
+// 9) 하트 나무 (마지막 후렴): 벤치에서 시작해 크게 물러나며 드러난다 (117 - 141)
+function sHeartTree(t) {
+  P.bg = NIGHT; P.ink = CREAM; P.fill = NIGHT; J = 0.8;
+  const pull = easeIO(sm(117.2, 123.5, t));
+  const season = 0 + 3.0 * sm(134.6, 139.8, t);   // 봄 → 겨울로 저문다
+  const sw = seasonW(season);
+  const pinkBurst = sm(131.3, 132.4, t) * (1 - sm(134.6, 137, t));
+  bg(mixHex(mixHex('#141a28', '#2a1c2a', 0.5 * sw[0] + 0.3 * pinkBurst), '#141a28', sw[3]));
+  const z = lerp(2.4, 0.86, pull), cx = lerp(560, 540, pull), cy = lerp(1160, 900, pull);
+  ctx.setTransform(z, 0, 0, z, W / 2 - cx * z, H / 2 - cy * z);
+  ln(-600, 1300, 1700, 1302, 2.8, 51);
+  // 별
+  for (let i = 0; i < 80; i++) { ctx.globalAlpha = 0.3 + 0.3 * Math.sin(t * 2 + i); ctx.fillStyle = CREAM; ctx.fillRect(-400 + hh(i, 1) * 1900, -500 + hh(i, 2) * 900, 2.5, 2.5); }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'lighter'; glow(540, 520, 900, PINK, 0.12 + 0.25 * pinkBurst); ctx.globalCompositeOperation = 'source-over';
+  tree(TREE_B, 540, 1300, 1.25, sm(117.2, 124.5, t) * 0.55 + 0.45, season, t, { heart: 560, heartY: 820, big: 1.6 + 0.6 * pinkBurst });
+  benchCouple(560, 1300, 0.62, 0.95, 1, 1300);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  // 금빛 반딧불
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 50; i++) { const x = W / 2 + Math.sin(t * 0.3 + i * 1.7) * 480 + (hh(i, 2) - .5) * 200, y = 400 + hh(i, 3) * 1100 + Math.cos(t * 0.5 + i) * 60;
+    ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t * 3 + i * 2); glow(x, y, 18, GOLD, 0.8); }
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  petals(t, Math.round(70 + 160 * pinkBurst) * (1 - sw[3]), PINK, { alpha: 1 - sw[3], speed: 90 + 80 * pinkBurst, wind: 70 });
+  if (sw[3] > 0.05) snow(t, Math.round(260 * sw[3]), { speed: 60 });
+}
+
+// 10) 촛불 앞의 두 사람 (마무리)
+function sOutro(t) {
+  P.bg = '#140f0c'; P.ink = CREAM; P.fill = '#140f0c'; J = 0.8;
+  const morning = sm(150.4, 153.6, t);
+  bg(mixHex('#140f0c', '#2a2018', morning));
+  // 창
+  const wx = 190, wy = 260, ww = 700, wh = 760;
+  ctx.save(); ctx.beginPath(); ctx.rect(wx, wy, ww, wh); ctx.clip();
+  const sky = ctx.createLinearGradient(0, wy, 0, wy + wh); sky.addColorStop(0, mixHex('#0e1322', '#f6d8c0', morning)); sky.addColorStop(1, mixHex('#1a2133', '#fbe8d0', morning));
+  ctx.fillStyle = sky; ctx.fillRect(wx, wy, ww, wh);
+  if (morning < 1) { ctx.globalAlpha = 1 - morning; for (let i = 0; i < 60; i++) { ctx.fillStyle = CREAM; ctx.fillRect(wx + hh(i, 1) * ww, wy + hh(i, 2) * wh * 0.6, 2, 2); } ctx.globalAlpha = 1; }
+  if (morning > 0) { P.ink = mixHex(CREAM, SEPIA, morning); P.fill = mixHex('#140f0c', '#fbe8d0', morning); tree(TREE_A, wx + ww - 120, wy + wh + 40, 0.9, 1, 0, t); P.ink = CREAM; P.fill = '#140f0c'; }
+  ctx.restore();
+  box(wx, wy, ww, wh, 3, 7000); ln(wx + ww / 2, wy, wx + ww / 2, wy + wh, 2.6, 7001); ln(wx, wy + wh / 2, wx + ww, wy + wh / 2, 2.6, 7002);
+  pen([[wx - 40, wy + wh], [wx + ww + 40, wy + wh], [wx + ww + 54, wy + wh + 30], [wx - 54, wy + wh + 30]], 2.6, 7003, { sharp: true, closed: true, fill: P.fill });
+  if (morning > 0) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = morning * 0.6;
+    for (let i = 0; i < 6; i++) { const g = ctx.createLinearGradient(wx + ww / 2, wy + wh / 2, 540, 1700); g.addColorStop(0, hexA('#ffe0b0', 0.3)); g.addColorStop(1, hexA('#ffe0b0', 0));
+      ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(wx + 60 + i * 110, wy + wh); ctx.lineTo(wx + 110 + i * 110, wy + wh); ctx.lineTo(180 + i * 160 + 80, 1900); ctx.lineTo(120 + i * 160, 1900); ctx.fill(); }
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; }
+  // 창턱의 초
+  candle(540, wy + wh, 1.0, t, 1 - sm(152.5, 154.5, t), 0);
+  // 두 사람의 뒷모습
+  benchCouple(540, 1500, 1.25, 0.97, sm(147.6, 149.4, t) * 0.6 + 0.4, 7100, { hairDark: '#1a1d26' });
+  // 이름: 촛불 연기처럼
+  const nm = sm(144.5, 146.4, t) * (1 - sm(149.6, 151, t));
+  if (nm > 0) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 1;
+    brushText('현심', 540, wy + 330, 300, sm(144.5, 146.2, t), hexA('#ffd690', nm), { glow: GOLD, blur: 50 });
+    ctx.globalCompositeOperation = 'source-over'; }
+  if (morning > 0.2) petals(t, Math.round(60 * morning), PINK, { alpha: morning, speed: 60 });
+}
+
+// 11) 엔딩 크레딧
+function sCredits(t) {
+  bg('#0b0d12');
+  const a = sm(154.6, 155.6, t);
+  ctx.globalCompositeOperation = 'lighter'; glow(W / 2, 760, 700, GOLD, 0.1 * a); ctx.globalCompositeOperation = 'source-over';
+  brushText('현심', W / 2, 700, 340, sm(154.8, 156.4, t), '#ffe2a8', { glow: GOLD, blur: 40 });
+  const rows = [['작사 · 작곡', 'Gemini', 157.2], ['아트 디자인', 'Claude Code', 158.4], ['감독', '성수', 159.6]];
+  ctx.textBaseline = 'alphabetic';
+  rows.forEach(([k, v, st], i) => { const u = sm(st, st + 0.9, t); if (u <= 0) return;
+    const y = 1040 + i * 130 + (1 - u) * 16;
+    ctx.globalAlpha = u; ctx.textAlign = 'center';
+    ctx.font = '400 32px "Gowun Batang", serif'; ctx.fillStyle = '#a7a196'; ctx.fillText(k, W / 2, y);
+    ctx.font = '700 52px "Gowun Batang", serif'; ctx.fillStyle = CREAM; ctx.fillText(v, W / 2, y + 62); });
+  ctx.globalAlpha = 1;
+  // 아래에서 작게 타는 초 하나
+  P.ink = hexA(CREAM, 0.8) ; P.fill = '#0b0d12';
+  ctx.globalAlpha = sm(160.5, 161.6, t);
+  candle(W / 2, 1640, 0.6, t, sm(160.8, 161.8, t), 900);
+  ctx.globalAlpha = 1;
+  const out = sm(164.4, 166, t); if (out > 0) { ctx.fillStyle = hexA('#000000', out); ctx.fillRect(0, 0, W, H); }
+}
+
+// ---------- 장면표 ----------
+const SCENES = [
+  [0, 33.7, t => { sWinter(t); sWinterFlame(t); }],
+  [33.2, 41.2, sName1],
+  [40.6, 46.4, sChorus1],
+  [45.8, 53.0, sEye],
+  [52.4, 61.6, sChorus1b],
+  [61.0, 75.8, sSketch],
+  [75.2, 82.2, sStars],
+  [81.6, 105.9, sTreeLapse],
+  [105.4, 117.6, sWind],
+  [117.0, 141.2, sHeartTree],
+  [140.6, 155.0, sOutro],
+  [154.4, 166.1, sCredits],
+];
+const FADE = 0.55;
+function render(t) {
+  t = clamp(t, 0, DUR - 0.001);
+  fb = Math.floor(t * 8);
+  X.setTransform(1, 0, 0, 1, 0, 0); X.globalAlpha = 1; X.globalCompositeOperation = 'source-over';
+  const act = SCENES.filter(s => t >= s[0] && t < s[1]);
+  act.forEach((s, i) => {
+    let a = 1;
+    if (i > 0) a = clamp((t - s[0]) / FADE);
+    if (i === 0) { ctx = X; s[2](t); }
+    else { ctx = LAX; LAX.setTransform(1, 0, 0, 1, 0, 0); LAX.globalAlpha = 1; LAX.globalCompositeOperation = 'source-over'; LAX.clearRect(0, 0, W, H); s[2](t);
+      X.setTransform(1, 0, 0, 1, 0, 0); X.globalAlpha = a; X.drawImage(LA, 0, 0); X.globalAlpha = 1; }
+  });
+  ctx = X;
+  X.setTransform(1, 0, 0, 1, 0, 0); X.globalAlpha = 1; X.globalCompositeOperation = 'source-over';
+  const fi = 1 - sm(0, 2.5, t); if (fi > 0) { X.fillStyle = hexA('#000000', fi); X.fillRect(0, 0, W, H); }
+  lyric(t);
+  // 은은한 비네팅
+  const v = X.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.75); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.35)');
+  X.fillStyle = v; X.fillRect(0, 0, W, H);
+}
+
+// ---------- 재생 ----------
+const au = document.getElementById('au'), big = document.getElementById('big'), pp = document.getElementById('pp'), seek = document.getElementById('seek'), tm = document.getElementById('time');
+const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+let seeking = false;
+function loop() { const t = au.currentTime || 0; render(t); if (!seeking) seek.value = t; tm.textContent = `${fmt(t)} / ${fmt(DUR)}`; if (!au.paused) requestAnimationFrame(loop); }
+function toggle() { if (au.paused) au.play().then(() => { big.hidden = true; pp.textContent = '일시정지'; requestAnimationFrame(loop); }).catch(() => {}); else { au.pause(); pp.textContent = '재생'; } }
+big.addEventListener('click', toggle); pp.addEventListener('click', toggle);
+au.addEventListener('ended', () => { pp.textContent = '다시 재생'; big.hidden = false; big.textContent = '다시'; });
+seek.addEventListener('input', () => { seeking = true; render(+seek.value); tm.textContent = `${fmt(+seek.value)} / ${fmt(DUR)}`; });
+seek.addEventListener('change', () => { au.currentTime = +seek.value; seeking = false; if (au.paused) render(+seek.value); });
+const ready = Promise.all([
+  document.fonts.load('520px "Nanum Brush Script"', '현심우리의하루'),
+  document.fonts.load('700 54px "Gowun Batang"', '가나다현심작사곡'),
+  document.fonts.load('400 32px "Gowun Batang"', '작사곡아트디자인감독'),
+]).catch(() => {});
+window.__render = t => render(t);
+window.__ready = ready.then(() => { NAMEPTS = null; return true; });
+const q = new URLSearchParams(location.search);
+ready.then(() => { NAMEPTS = null; render(q.has('t') ? +q.get('t') : 34.8); });
+render(0.0001);
+})();
+</script>
